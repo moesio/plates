@@ -1,0 +1,15 @@
+fast-alpr==0.4.0
+fast-plate-ocr==1.1.0
+flatbuffers==25.12.19
+markdown-it-py==4.2.0
+mdurl==0.1.2
+numpy==2.4.6
+onnxruntime==1.26.0
+open-image-models==0.5.1
+opencv-python==4.13.0.92
+packaging==26.2
+protobuf==7.35.0
+Pygments==2.20.0
+PyYAML==6.0.3
+rich==15.0.0
+tqdm==4.67.3
