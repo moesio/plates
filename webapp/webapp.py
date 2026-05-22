@@ -13,18 +13,15 @@ from fast_alpr import ALPR
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import database
+import config as cfg
 
 app = Flask(__name__)
 app.logger.setLevel(logging.INFO)
 alpr = ALPR()
 
-DEDUP_SECONDS = 60
-CLEANUP_INTERVAL = 20
-
 _seen = {}
 _seen_lock = threading.Lock()
 _save_counter = 0
-
 
 _PLATE_RE = re.compile(r"^[A-Z]{3}(?:\d{4}|\d[A-Z]\d{2})$")
 
@@ -36,9 +33,10 @@ def _is_valid_plate(text):
 def _check_dedup(plate_text, cam_id):
     now = time.time()
     key = (plate_text, cam_id)
+    window = cfg.get_int("dedup_seconds", 60)
     with _seen_lock:
         last = _seen.get(key)
-        if last is not None and now - last < DEDUP_SECONDS:
+        if last is not None and now - last < window:
             return False
         _seen[key] = now
         return True
@@ -46,13 +44,26 @@ def _check_dedup(plate_text, cam_id):
 
 def _cleanup_stale():
     now = time.time()
-    cutoff = now - DEDUP_SECONDS * 2
+    window = cfg.get_int("dedup_seconds", 60)
+    cutoff = now - window * 2
     with _seen_lock:
         stale = [k for k, t in _seen.items() if t < cutoff]
         for k in stale:
             del _seen[k]
     if stale:
         app.logger.debug("Purged %d stale dedup entries", len(stale))
+
+
+@app.before_request
+def _seed_config():
+    if not hasattr(app, "_config_seeded"):
+        try:
+            session = database.get_session()
+            cfg.seed(session)
+            session.close()
+        except Exception:
+            pass
+        app._config_seeded = True
 
 
 @app.route("/")
@@ -75,6 +86,7 @@ def detect():
 
     results = alpr.predict(frame)
     detections = []
+    min_conf = cfg.get_float("confidence_threshold", 0.0)
 
     for result in results:
         if result.ocr is None:
@@ -84,6 +96,8 @@ def detect():
         conf = result.ocr.confidence
         if isinstance(conf, list):
             conf = sum(conf) / len(conf) if conf else 0.0
+        if conf < min_conf:
+            continue
 
         detections.append({
             "plate_text": text,
@@ -134,12 +148,40 @@ def detect():
             session.close()
 
     _save_counter += 1
-    if _save_counter % CLEANUP_INTERVAL == 0:
+    window = cfg.get_int("dedup_seconds", 60)
+    cleanup_every = cfg.get_int("cleanup_interval", 20)
+    if _save_counter % cleanup_every == 0:
         _cleanup_stale()
 
-    app.logger.info("Plates: %d saved, %d skipped (dedup window: %ds)", saved, skipped, DEDUP_SECONDS)
+    app.logger.info("Plates: %d saved, %d skipped (dedup window: %ds)", saved, skipped, window)
 
     return jsonify(detections)
+
+
+@app.route("/config", methods=["GET"])
+def list_config():
+    session = database.get_session()
+    rows = session.query(database.Config).order_by(database.Config.key).all()
+    session.close()
+    return jsonify([{"key": r.key, "value": r.value, "description": r.description} for r in rows])
+
+
+@app.route("/config/<key>", methods=["PUT"])
+def update_config(key):
+    data = request.get_json()
+    if not data or "value" not in data:
+        return jsonify({"error": "value is required"}), 400
+    session = database.get_session()
+    row = session.query(database.Config).filter_by(key=key).first()
+    if row is None:
+        session.close()
+        return jsonify({"error": "config key not found"}), 404
+    row.value = str(data["value"])
+    session.commit()
+    new_value = row.value
+    session.close()
+    cfg.reload()
+    return jsonify({"key": key, "value": new_value})
 
 
 if __name__ == "__main__":

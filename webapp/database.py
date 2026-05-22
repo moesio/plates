@@ -1,6 +1,6 @@
 import os
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, LargeBinary
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, LargeBinary, Text
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.sql import func
 
@@ -25,6 +25,17 @@ class Detection(Base):
     image = Column(LargeBinary, nullable=True)
     detected_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class Config(Base):
+    __tablename__ = "config"
+
+    key = Column(String(50), primary_key=True)
+    value = Column(String(255), nullable=False)
+    description = Column(Text)
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
 
