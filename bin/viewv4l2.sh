@@ -1,0 +1,1 @@
+ffplay -f v4l2 /dev/video10

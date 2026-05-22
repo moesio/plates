@@ -1,6 +1,6 @@
 import os
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, LargeBinary
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.sql import func
 
@@ -20,8 +20,9 @@ class Detection(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     plate_text = Column(String(20), nullable=False, index=True)
     confidence = Column(Float, nullable=False)
-    camera_id = Column(Integer, nullable=False)
+    camera_id = Column(String(200), nullable=False)
     camera_name = Column(String(100))
+    image = Column(LargeBinary, nullable=True)
     detected_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
