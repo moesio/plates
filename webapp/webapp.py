@@ -1,4 +1,5 @@
 import logging
+import re
 import threading
 import sys
 import time
@@ -23,6 +24,13 @@ CLEANUP_INTERVAL = 20
 _seen = {}
 _seen_lock = threading.Lock()
 _save_counter = 0
+
+
+_PLATE_RE = re.compile(r"^[A-Z]{3}(?:\d{4}|\d[A-Z]\d{2})$")
+
+
+def _is_valid_plate(text):
+    return bool(_PLATE_RE.match(text.upper().replace("-", "").strip()))
 
 
 def _check_dedup(plate_text, cam_id):
@@ -86,11 +94,18 @@ def detect():
             "y2": bbox.y2,
         })
 
+    before = len(detections)
+    detections = [d for d in detections if _is_valid_plate(d["plate_text"])]
+    invalid = before - len(detections)
+
     cam_id = request.headers.get("X-Camera-Id", "0")
     cam_name_raw = request.headers.get("X-Camera-Name", "Browser Camera")
     cam_name = unquote(cam_name_raw)
 
-    app.logger.info("Detected %d plate(s), image size: %d bytes", len(detections), len(image_bytes))
+    app.logger.info(
+        "Detected %d plate(s), %d invalid, image size: %d bytes",
+        len(detections), invalid, len(image_bytes),
+    )
 
     saved = 0
     skipped = 0
