@@ -16,45 +16,54 @@
     display: flex; align-items: center; gap: 8px;
   }
   h1 small { font-size: 0.875rem; font-weight: 400; color: #94a3b8; }
+
+  .permission-prompt {
+    text-align: center; padding: 48px 16px; color: #94a3b8;
+  }
+  .permission-prompt .icon { font-size: 3rem; margin-bottom: 16px; }
+  .permission-prompt p { margin-bottom: 16px; }
+  .btn {
+    background: #22c55e; color: #fff; border: none; border-radius: 8px;
+    padding: 10px 24px; cursor: pointer; font-size: 0.95rem; font-weight: 600;
+    transition: background 0.2s;
+  }
+  .btn:hover { background: #16a34a; }
+  .btn.danger { background: #ef4444; }
+  .btn.danger:hover { background: #dc2626; }
+
   .camera-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     gap: 12px; margin-bottom: 24px;
   }
   .camera-card {
     background: #1e293b; border: 2px solid transparent; border-radius: 12px;
-    padding: 16px; cursor: pointer; transition: all 0.2s;
+    padding: 14px; cursor: pointer; transition: all 0.2s;
   }
-  .camera-card:hover { border-color: #475569; background: #1e293b; }
+  .camera-card:hover { border-color: #475569; }
   .camera-card.selected { border-color: #22c55e; background: #052e16; }
-  .camera-card .name { font-weight: 600; font-size: 1rem; }
-  .camera-card .info { font-size: 0.8rem; color: #94a3b8; margin-top: 4px; }
-  .camera-card .badge {
-    display: inline-block; margin-top: 8px; font-size: 0.7rem;
-    padding: 2px 8px; border-radius: 99px; background: #334155; color: #94a3b8;
-    margin-right: 4px;
-  }
-  .camera-card .badge.virtual { background: #7c3aed; color: #ddd6fe; }
-  .camera-card .badge.physical { background: #166534; color: #bbf7d0; }
+  .camera-card .name { font-weight: 600; font-size: 0.95rem; }
+  .camera-card .info { font-size: 0.8rem; color: #94a3b8; margin-top: 2px; }
+
   .viewer { display: none; margin-top: 8px; }
   .viewer.active { display: block; }
   .viewer .stream-wrapper {
     position: relative; background: #000; border-radius: 12px; overflow: hidden;
   }
-  .viewer img {
-    display: block; width: 100%; height: auto; max-height: 70vh;
-    object-fit: contain;
+  .viewer video {
+    display: block; width: 100%; max-height: 70vh;
+    object-fit: contain; border-radius: 12px 12px 0 0;
+  }
+  .viewer canvas {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none;
   }
   .viewer .bar {
     display: flex; align-items: center; justify-content: space-between;
     padding: 12px 16px; background: #1e293b; border-radius: 0 0 12px 12px;
   }
-  .viewer .bar .cam-label { font-weight: 600; }
-  .btn {
-    background: #ef4444; color: #fff; border: none; border-radius: 8px;
-    padding: 8px 16px; cursor: pointer; font-size: 0.875rem; font-weight: 500;
-    transition: background 0.2s;
-  }
-  .btn:hover { background: #dc2626; }
+  .viewer .bar .cam-label { font-weight: 600; font-size: 0.9rem; }
+  .viewer .bar .status { font-size: 0.8rem; color: #94a3b8; }
+
   .spinner {
     display: inline-block; width: 20px; height: 20px;
     border: 3px solid #334155; border-top-color: #22c55e;
@@ -62,94 +71,237 @@
     vertical-align: middle;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .loading { text-align: center; padding: 40px; color: #94a3b8; }
-  .empty { text-align: center; padding: 40px; color: #94a3b8; }
-  .empty p { margin-top: 8px; }
+  .loading { text-align: center; padding: 24px; color: #94a3b8; }
+  .empty { text-align: center; padding: 32px; color: #94a3b8; }
+  .error { text-align: center; padding: 32px; color: #f87171; }
+
+  .hidden { display: none !important; }
 </style>
 </head>
 <body>
 <div class="container">
-  <h1>
-    <span>ALPR</span>
-    <small>Reconhecimento de Placas</small>
-  </h1>
+  <h1><span>ALPR</span><small>Reconhecimento de Placas</small></h1>
 
-  <div id="camera-list" class="camera-grid">
-    <div class="loading"><div class="spinner"></div> Buscando câmeras...</div>
+  <div id="step-permission" class="permission-prompt">
+    <div class="icon">📷</div>
+    <p>Este aplicativo precisa acessar sua câmera para reconhecer placas de veículos.</p>
+    <button class="btn" onclick="requestCamera()">Permitir Acesso à Câmera</button>
   </div>
 
-  <div id="viewer" class="viewer">
+  <div id="step-cameras" class="hidden">
+    <p style="margin-bottom:12px;color:#94a3b8;font-size:0.9rem">
+      Selecione uma câmera:
+    </p>
+    <div id="camera-list" class="camera-grid"></div>
+  </div>
+
+  <div id="step-viewer" class="viewer">
     <div class="stream-wrapper">
-      <img id="stream" alt="Stream da câmera">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="overlay"></canvas>
     </div>
     <div class="bar">
       <span class="cam-label" id="cam-label"></span>
-      <button class="btn" onclick="stopCamera()">Parar</button>
+      <span class="status" id="cam-status">Aguardando...</span>
+      <button class="btn danger" onclick="stopCamera()">Parar</button>
     </div>
   </div>
 </div>
 
 <script>
-let currentCam = null;
-let streamUrl = null;
+let mediaStream = null;
+let selectedDeviceId = null;
+let processingTimer = null;
 
-async function loadCameras() {
-  const container = document.getElementById('camera-list');
+async function requestCamera() {
   try {
-    const res = await fetch('/cameras');
-    const cams = await res.json();
-    if (cams.length === 0) {
-      container.innerHTML = '<div class="empty">Nenhuma câmera encontrada.</div>';
-      return;
-    }
-    container.innerHTML = '';
-    cams.forEach(cam => {
-      const card = document.createElement('div');
-      card.className = 'camera-card';
-      const typeBadge = cam.virtual
-        ? '<span class="badge virtual">Virtual</span>'
-        : '<span class="badge physical">Física</span>';
-      card.innerHTML = `
-        <div class="name">${cam.label}</div>
-        <div class="info">${cam.width} &times; ${cam.height} &middot; video${cam.id}</div>
-        <div>${typeBadge}</div>
-      `;
-      card.addEventListener('click', () => startCamera(cam, card));
-      container.appendChild(card);
-    });
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    stream.getTracks().forEach(t => t.stop());
+    document.getElementById('step-permission').classList.add('hidden');
+    document.getElementById('step-cameras').classList.remove('hidden');
+    await listCameras();
   } catch (err) {
-    container.innerHTML = '<div class="empty">Erro ao acessar o servidor.</div>';
+    document.getElementById('step-permission').innerHTML = `
+      <div class="error">
+        <p>Erro ao acessar câmera: ${err.message}</p>
+        <button class="btn" onclick="requestCamera()" style="margin-top:12px">Tentar Novamente</button>
+      </div>`;
   }
 }
 
-function startCamera(cam, card) {
+async function listCameras() {
+  const container = document.getElementById('camera-list');
+  container.innerHTML = '<div class="loading"><div class="spinner"></div> Listando câmeras...</div>';
+
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoDevices = devices.filter(d => d.kind === 'videoinput');
+
+    if (videoDevices.length === 0) {
+      container.innerHTML = '<div class="empty">Nenhuma câmera encontrada.</div>';
+      return;
+    }
+
+    container.innerHTML = '';
+    videoDevices.forEach((dev, idx) => {
+      const label = dev.label || `Câmera ${idx + 1}`;
+      const card = document.createElement('div');
+      card.className = 'camera-card';
+      card.innerHTML = `
+        <div class="name">${label}</div>
+        <div class="info">${dev.deviceId ? deviceIdShort(dev.deviceId) : 'ID indisponível'}</div>
+      `;
+      card.addEventListener('click', () => startCamera(dev.deviceId, label));
+      container.appendChild(card);
+    });
+  } catch (err) {
+    container.innerHTML = `<div class="error">Erro ao listar câmeras: ${err.message}</div>`;
+  }
+}
+
+function deviceIdShort(id) {
+  return id.length > 20 ? id.slice(0, 16) + '…' : id;
+}
+
+async function startCamera(deviceId, label) {
+  if (mediaStream) stopCamera();
+  selectedDeviceId = deviceId;
+
   document.querySelectorAll('.camera-card').forEach(c => c.classList.remove('selected'));
-  if (card) card.classList.add('selected');
+  const cards = document.getElementById('camera-list').children;
+  for (const card of cards) {
+    const name = card.querySelector('.name');
+    if (name && name.textContent === label) {
+      card.classList.add('selected');
+      break;
+    }
+  }
 
-  if (currentCam === cam.id) return;
-  currentCam = cam.id;
+  try {
+    const constraints = {
+      video: deviceId ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } : true,
+      audio: false,
+    };
 
-  const viewer = document.getElementById('viewer');
-  const img = document.getElementById('stream');
-  const label = document.getElementById('cam-label');
+    mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+    const video = document.getElementById('video');
+    video.srcObject = mediaStream;
 
-  if (streamUrl) URL.revokeObjectURL(streamUrl);
-  img.src = `/video/${cam.id}`;
-  label.textContent = cam.label;
-  viewer.classList.add('active');
+    document.getElementById('step-cameras').classList.add('hidden');
+    document.getElementById('step-viewer').classList.add('active');
+    document.getElementById('cam-label').textContent = label;
+
+    video.onloadedmetadata = () => {
+      const canvas = document.getElementById('overlay');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      startProcessing(label);
+    };
+  } catch (err) {
+    document.getElementById('cam-status').textContent = `Erro: ${err.message}`;
+  }
+}
+
+function startProcessing(camName) {
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('overlay');
+  const ctx = canvas.getContext('2d');
+  const status = document.getElementById('cam-status');
+
+  let lastDetections = [];
+  let lastTime = 0;
+  const INTERVAL_MS = 500;
+
+  async function captureAndDetect() {
+    if (!mediaStream) return;
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
+
+    canvas.toBlob(async (blob) => {
+      try {
+        const res = await fetch('/detect', {
+          method: 'POST',
+          headers: {
+            'X-Camera-Id': selectedDeviceId || '0',
+            'X-Camera-Name': encodeURIComponent(camName),
+          },
+          body: blob,
+        });
+
+        if (!res.ok) {
+          status.textContent = 'Erro no servidor';
+          return;
+        }
+
+        const detections = await res.json();
+        lastDetections = detections;
+
+        if (detections.length > 0) {
+          status.textContent = `${detections.length} placa(s) detectada(s)`;
+          drawDetections(ctx, detections);
+        } else {
+          status.textContent = 'Monitorando...';
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+      } catch (err) {
+        status.textContent = 'Erro de conexão';
+      }
+    }, 'image/jpeg', 0.7);
+  }
+
+  function drawDetections(ctx, detections) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    for (const d of detections) {
+      const { x1, y1, x2, y2, plate_text, confidence } = d;
+
+      ctx.strokeStyle = '#22c55e';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+      ctx.fillStyle = '#22c55e';
+      const label = `${plate_text} (${(confidence * 100).toFixed(0)}%)`;
+      const fontSize = Math.max(14, Math.min(20, (x2 - x1) * 0.08));
+      ctx.font = `bold ${fontSize}px sans-serif`;
+      const textWidth = ctx.measureText(label).width;
+      const textHeight = fontSize + 6;
+      const bx = x1;
+      const by = y1 - textHeight < 0 ? y2 : y1 - textHeight;
+      ctx.fillRect(bx, by, textWidth + 8, textHeight);
+
+      ctx.fillStyle = '#052e16';
+      ctx.fillText(label, bx + 4, by + textHeight - 4);
+    }
+  }
+
+  if (processingTimer) clearInterval(processingTimer);
+  processingTimer = setInterval(captureAndDetect, INTERVAL_MS);
 }
 
 function stopCamera() {
-  const img = document.getElementById('stream');
-  const viewer = document.getElementById('viewer');
-  const cards = document.querySelectorAll('.camera-card');
-  img.src = '';
-  viewer.classList.remove('active');
-  cards.forEach(c => c.classList.remove('selected'));
-  currentCam = null;
-}
+  if (processingTimer) {
+    clearInterval(processingTimer);
+    processingTimer = null;
+  }
 
-loadCameras();
+  if (mediaStream) {
+    mediaStream.getTracks().forEach(t => t.stop());
+    mediaStream = null;
+  }
+
+  const video = document.getElementById('video');
+  video.srcObject = null;
+
+  const canvas = document.getElementById('overlay');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  document.getElementById('step-viewer').classList.remove('active');
+  document.getElementById('step-cameras').classList.remove('hidden');
+  document.getElementById('cam-status').textContent = 'Aguardando...';
+}
 </script>
 </body>
 </html>
