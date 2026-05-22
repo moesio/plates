@@ -1,7 +1,7 @@
 import threading
 import time
 
-import database
+from webapp import database
 
 _CACHE = None
 _CACHE_TTL = 10

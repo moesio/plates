@@ -11,9 +11,9 @@ import numpy as np
 from flask import Flask, jsonify, render_template, request
 from fast_alpr import ALPR
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import database
-import config as cfg
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from webapp import database
+from webapp import config as cfg
 
 app = Flask(__name__)
 app.logger.setLevel(logging.INFO)
@@ -56,7 +56,7 @@ def _cleanup_stale():
 
 @app.before_request
 def _seed_config():
-    if not hasattr(app, "_config_seeded"):
+    if not getattr(app, "_config_seeded", False):
         try:
             session = database.get_session()
             cfg.seed(session)
@@ -160,10 +160,12 @@ def detect():
 
 @app.route("/config", methods=["GET"])
 def list_config():
-    session = database.get_session()
-    rows = session.query(database.Config).order_by(database.Config.key).all()
-    session.close()
-    return jsonify([{"key": r.key, "value": r.value, "description": r.description} for r in rows])
+    items = []
+    for key in sorted(cfg._DEFAULTS):
+        val = cfg.get(key, "")
+        desc = cfg._DEFAULTS[key][1] if key in cfg._DEFAULTS else ""
+        items.append({"key": key, "value": val, "description": desc})
+    return jsonify(items)
 
 
 @app.route("/config/<key>", methods=["PUT"])
