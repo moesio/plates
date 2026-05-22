@@ -13,3 +13,8 @@ Pygments==2.20.0
 PyYAML==6.0.3
 rich==15.0.0
 tqdm==4.67.3
+
+flask
+sqlalchemy
+psycopg2-binary
+alembic

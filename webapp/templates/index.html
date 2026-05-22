@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ALPR - Reconhecimento de Placas</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f172a; color: #e2e8f0; min-height: 100vh;
+  }
+  .container { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+  h1 {
+    font-size: 1.5rem; font-weight: 700; margin-bottom: 24px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  h1 small { font-size: 0.875rem; font-weight: 400; color: #94a3b8; }
+  .camera-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px; margin-bottom: 24px;
+  }
+  .camera-card {
+    background: #1e293b; border: 2px solid transparent; border-radius: 12px;
+    padding: 16px; cursor: pointer; transition: all 0.2s;
+  }
+  .camera-card:hover { border-color: #475569; background: #1e293b; }
+  .camera-card.selected { border-color: #22c55e; background: #052e16; }
+  .camera-card .name { font-weight: 600; font-size: 1rem; }
+  .camera-card .info { font-size: 0.8rem; color: #94a3b8; margin-top: 4px; }
+  .camera-card .badge {
+    display: inline-block; margin-top: 8px; font-size: 0.7rem;
+    padding: 2px 8px; border-radius: 99px; background: #334155; color: #94a3b8;
+    margin-right: 4px;
+  }
+  .camera-card .badge.virtual { background: #7c3aed; color: #ddd6fe; }
+  .camera-card .badge.physical { background: #166534; color: #bbf7d0; }
+  .viewer { display: none; margin-top: 8px; }
+  .viewer.active { display: block; }
+  .viewer .stream-wrapper {
+    position: relative; background: #000; border-radius: 12px; overflow: hidden;
+  }
+  .viewer img {
+    display: block; width: 100%; height: auto; max-height: 70vh;
+    object-fit: contain;
+  }
+  .viewer .bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; background: #1e293b; border-radius: 0 0 12px 12px;
+  }
+  .viewer .bar .cam-label { font-weight: 600; }
+  .btn {
+    background: #ef4444; color: #fff; border: none; border-radius: 8px;
+    padding: 8px 16px; cursor: pointer; font-size: 0.875rem; font-weight: 500;
+    transition: background 0.2s;
+  }
+  .btn:hover { background: #dc2626; }
+  .spinner {
+    display: inline-block; width: 20px; height: 20px;
+    border: 3px solid #334155; border-top-color: #22c55e;
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading { text-align: center; padding: 40px; color: #94a3b8; }
+  .empty { text-align: center; padding: 40px; color: #94a3b8; }
+  .empty p { margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>
+    <span>ALPR</span>
+    <small>Reconhecimento de Placas</small>
+  </h1>
+
+  <div id="camera-list" class="camera-grid">
+    <div class="loading"><div class="spinner"></div> Buscando câmeras...</div>
+  </div>
+
+  <div id="viewer" class="viewer">
+    <div class="stream-wrapper">
+      <img id="stream" alt="Stream da câmera">
+    </div>
+    <div class="bar">
+      <span class="cam-label" id="cam-label"></span>
+      <button class="btn" onclick="stopCamera()">Parar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentCam = null;
+let streamUrl = null;
+
+async function loadCameras() {
+  const container = document.getElementById('camera-list');
+  try {
+    const res = await fetch('/cameras');
+    const cams = await res.json();
+    if (cams.length === 0) {
+      container.innerHTML = '<div class="empty">Nenhuma câmera encontrada.</div>';
+      return;
+    }
+    container.innerHTML = '';
+    cams.forEach(cam => {
+      const card = document.createElement('div');
+      card.className = 'camera-card';
+      const typeBadge = cam.virtual
+        ? '<span class="badge virtual">Virtual</span>'
+        : '<span class="badge physical">Física</span>';
+      card.innerHTML = `
+        <div class="name">${cam.label}</div>
+        <div class="info">${cam.width} &times; ${cam.height} &middot; video${cam.id}</div>
+        <div>${typeBadge}</div>
+      `;
+      card.addEventListener('click', () => startCamera(cam, card));
+      container.appendChild(card);
+    });
+  } catch (err) {
+    container.innerHTML = '<div class="empty">Erro ao acessar o servidor.</div>';
+  }
+}
+
+function startCamera(cam, card) {
+  document.querySelectorAll('.camera-card').forEach(c => c.classList.remove('selected'));
+  if (card) card.classList.add('selected');
+
+  if (currentCam === cam.id) return;
+  currentCam = cam.id;
+
+  const viewer = document.getElementById('viewer');
+  const img = document.getElementById('stream');
+  const label = document.getElementById('cam-label');
+
+  if (streamUrl) URL.revokeObjectURL(streamUrl);
+  img.src = `/video/${cam.id}`;
+  label.textContent = cam.label;
+  viewer.classList.add('active');
+}
+
+function stopCamera() {
+  const img = document.getElementById('stream');
+  const viewer = document.getElementById('viewer');
+  const cards = document.querySelectorAll('.camera-card');
+  img.src = '';
+  viewer.classList.remove('active');
+  cards.forEach(c => c.classList.remove('selected'));
+  currentCam = null;
+}
+
+loadCameras();
+</script>
+</body>
+</html>
