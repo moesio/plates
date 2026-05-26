@@ -70,7 +70,7 @@ class TestDetectDedup:
         r2 = client.post("/detect", data=data, content_type="image/jpeg")
         assert len(r2.get_json()) == 1
 
-        from webapp.webapp import _seen
+        from webapp.dedup import _seen
 
         key = ("ABC1A23", "0")
         assert key in _seen
@@ -97,7 +97,7 @@ class TestDetectDedup:
         )
         assert len(r2.get_json()) == 1
 
-        from webapp.webapp import _seen
+        from webapp.dedup import _seen
 
         assert ("ABC1A23", "cam-1") in _seen
         assert ("ABC1A23", "cam-2") in _seen

@@ -3,6 +3,46 @@ from unittest.mock import MagicMock
 import pytest
 
 
+class TestRtspCameraModel:
+    def test_to_dict(self):
+        from webapp.database import RtspCamera
+        from datetime import datetime
+
+        cam = RtspCamera(
+            id=1, host="10.0.0.1", port=554, username="admin", password="secret",
+            path="/live", name="Portaria", enabled=True,
+        )
+        d = cam.to_dict()
+        assert d["id"] == 1
+        assert d["host"] == "10.0.0.1"
+        assert d["port"] == 554
+        assert d["username"] == "admin"
+        assert d["password"] == "secret"
+        assert d["path"] == "/live"
+        assert d["name"] == "Portaria"
+        assert d["enabled"] is True
+
+    def test_to_dict_defaults(self):
+        from webapp.database import RtspCamera
+
+        cam = RtspCamera(id=2, host="10.0.0.2")
+        d = cam.to_dict()
+        assert d["host"] == "10.0.0.2"
+        assert d["port"] == 554
+        assert d["username"] == ""
+        assert d["password"] == ""
+        assert d["path"] == "/"
+        assert d["name"] == ""
+        assert d["enabled"] is True
+
+    def test_to_dict_enabled_none_defaults_true(self):
+        from webapp.database import RtspCamera
+
+        cam = RtspCamera(id=3, host="10.0.0.3", enabled=None)
+        d = cam.to_dict()
+        assert d["enabled"] is True
+
+
 class TestConfigAPI:
     def test_list_config_uses_cache(self, client):
         import webapp.config as cfg
@@ -58,21 +98,81 @@ class TestConfigAPI:
         resp = client.put("/config/dedup_seconds", json={})
         assert resp.status_code == 400
 
-    def test_update_rtsp_cameras_triggers_threads(self, client, mock_db_session, mocker):
-        from webapp.database import Config
-        from webapp import webapp
+    def test_create_camera(self, client, mock_db_session, mocker):
+        from webapp.database import RtspCamera
 
-        webapp._RTSP_THREADS.clear()
-        mock_start = mocker.patch.object(webapp, "_start_rtsp_threads")
-        existing = Config(key="rtsp_cameras", value="[]")
-        mock_db_session.query.return_value.filter_by.return_value.first.return_value = existing
+        mock_start = mocker.patch("webapp.webapp._start_rtsp_threads")
 
-        resp = client.put(
-            "/config/rtsp_cameras",
-            json={"value": '[{"host":"10.0.0.1","port":554}]'},
-        )
-        assert resp.status_code == 200
+        resp = client.post("/cameras", json={"host": "10.0.0.1", "port": 554})
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data["host"] == "10.0.0.1"
+        assert data["port"] == 554
+
+        added = mock_db_session.add.call_args[0][0]
+        assert isinstance(added, RtspCamera)
+        assert added.host == "10.0.0.1"
         mock_start.assert_called_once()
+
+    def test_create_camera_missing_host(self, client):
+        resp = client.post("/cameras", json={"port": 554})
+        assert resp.status_code == 400
+
+    def test_list_cameras(self, client, mock_db_session):
+        from webapp.database import RtspCamera
+
+        cams = [
+            RtspCamera(id=1, host="10.0.0.1", port=554, name="Cam 1"),
+            RtspCamera(id=2, host="10.0.0.2", port=554, name="Cam 2"),
+        ]
+        mock_db_session.query.return_value.order_by.return_value.all.return_value = cams
+
+        resp = client.get("/cameras")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert len(data) == 2
+        assert data[0]["host"] == "10.0.0.1"
+        assert data[1]["host"] == "10.0.0.2"
+
+    def test_update_camera(self, client, mock_db_session, mocker):
+        from webapp.database import RtspCamera
+
+        mock_start = mocker.patch("webapp.webapp._start_rtsp_threads")
+        cam = RtspCamera(id=1, host="10.0.0.1", port=554, name="Old Name")
+        mock_db_session.query.return_value.filter_by.return_value.first.return_value = cam
+
+        resp = client.put("/cameras/1", json={"name": "New Name"})
+        assert resp.status_code == 200
+        assert cam.name == "New Name"
+        mock_start.assert_called_once()
+
+    def test_update_camera_not_found(self, client, mock_db_session):
+        mock_db_session.query.return_value.filter_by.return_value.first.return_value = None
+
+        resp = client.put("/cameras/999", json={"name": "Nope"})
+        assert resp.status_code == 404
+
+    def test_update_camera_empty_body(self, client):
+        resp = client.put("/cameras/1", json={})
+        assert resp.status_code == 400
+
+    def test_delete_camera(self, client, mock_db_session, mocker):
+        from webapp.database import RtspCamera
+
+        mock_start = mocker.patch("webapp.webapp._start_rtsp_threads")
+        cam = RtspCamera(id=1, host="10.0.0.1", port=554)
+        mock_db_session.query.return_value.filter_by.return_value.first.return_value = cam
+
+        resp = client.delete("/cameras/1")
+        assert resp.status_code == 200
+        mock_db_session.delete.assert_called_once_with(cam)
+        mock_start.assert_called_once()
+
+    def test_delete_camera_not_found(self, client, mock_db_session):
+        mock_db_session.query.return_value.filter_by.return_value.first.return_value = None
+
+        resp = client.delete("/cameras/999")
+        assert resp.status_code == 404
 
 
 class TestSeedOnFirstRequest:

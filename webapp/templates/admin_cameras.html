@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gerenciar Câmeras - ALPR</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f172a; color: #e2e8f0; min-height: 100vh;
+  }
+  .container { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+  h1 {
+    font-size: 1.5rem; font-weight: 700; margin-bottom: 24px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  h1 small { font-size: 0.875rem; font-weight: 400; color: #94a3b8; }
+
+  nav {
+    display: flex; gap: 4px; margin-bottom: 24px;
+    background: #1e293b; border-radius: 10px; padding: 4px;
+  }
+  nav a {
+    padding: 8px 18px; border-radius: 8px; text-decoration: none;
+    color: #94a3b8; font-size: 0.9rem; font-weight: 500; transition: all 0.2s;
+  }
+  nav a:hover { background: #334155; color: #e2e8f0; }
+  nav a.active { background: #22c55e; color: #fff; }
+
+  .toolbar { margin-bottom: 16px; }
+  .toolbar .btn { background: #22c55e; color: #fff; border: none; border-radius: 8px; padding: 10px 20px; cursor: pointer; font-size: 0.9rem; font-weight: 600; transition: background 0.2s; }
+  .toolbar .btn:hover { background: #16a34a; }
+  .toolbar .btn.danger { background: #ef4444; }
+  .toolbar .btn.danger:hover { background: #dc2626; }
+  .toolbar .btn.secondary { background: #475569; }
+  .toolbar .btn.secondary:hover { background: #64748b; }
+
+  table { width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 12px; overflow: hidden; }
+  th, td { padding: 12px 14px; text-align: left; font-size: 0.85rem; }
+  th { background: #334155; font-weight: 600; color: #94a3b8; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
+  td { border-top: 1px solid #334155; }
+  tr:hover td { background: #1a253d; }
+  .actions { display: flex; gap: 6px; }
+  .actions button { padding: 5px 12px; border: none; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 500; transition: background 0.2s; }
+  .actions .edit { background: #3b82f6; color: #fff; }
+  .actions .edit:hover { background: #2563eb; }
+  .actions .delete { background: #ef4444; color: #fff; }
+  .actions .delete:hover { background: #dc2626; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 600; }
+  .badge.on { background: #166534; color: #86efac; }
+  .badge.off { background: #7f1d1d; color: #fca5a5; }
+
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal {
+    background: #1e293b; border-radius: 14px; padding: 28px; width: 100%;
+    max-width: 480px; max-height: 90vh; overflow-y: auto;
+  }
+  .modal h2 { font-size: 1.2rem; margin-bottom: 20px; }
+  .modal label { display: block; font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px; margin-top: 14px; }
+  .modal label:first-child { margin-top: 0; }
+  .modal input, .modal select {
+    width: 100%; padding: 9px 12px; border: 1px solid #475569; border-radius: 8px;
+    background: #0f172a; color: #e2e8f0; font-size: 0.9rem; outline: none;
+  }
+  .modal input:focus { border-color: #22c55e; }
+  .modal .checkbox-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+  .modal .checkbox-row input { width: auto; }
+  .modal .modal-actions { display: flex; gap: 8px; margin-top: 22px; justify-content: flex-end; }
+
+  .empty { text-align: center; padding: 48px; color: #475569; font-size: 0.9rem; }
+
+  .toast {
+    position: fixed; bottom: 24px; right: 24px; padding: 12px 20px;
+    border-radius: 10px; font-size: 0.85rem; font-weight: 500; z-index: 200;
+    opacity: 0; transition: opacity 0.3s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  .toast.success { background: #166534; color: #86efac; }
+  .toast.error { background: #7f1d1d; color: #fca5a5; }
+
+  .spinner {
+    display: inline-block; width: 20px; height: 20px;
+    border: 3px solid #334155; border-top-color: #22c55e;
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading { text-align: center; padding: 24px; color: #94a3b8; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1><span>ALPR</span><small>Gerenciar Câmeras RTSP</small></h1>
+
+  <nav>
+    <a href="/">Monitor</a>
+    <a href="/admin/cameras" class="active">Câmeras</a>
+    <a href="/admin/config">Config</a>
+  </nav>
+
+  <div class="toolbar">
+    <button class="btn" onclick="openAddModal()">+ Nova Câmera</button>
+  </div>
+
+  <table id="camera-table">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Host</th>
+        <th>Porta</th>
+        <th>Usuário</th>
+        <th>Path</th>
+        <th>Nome</th>
+        <th>Ativo</th>
+        <th>Ações</th>
+      </tr>
+    </thead>
+    <tbody id="camera-tbody">
+      <tr><td colspan="8" class="loading"><div class="spinner"></div> Carregando...</td></tr>
+    </tbody>
+  </table>
+
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal">
+      <h2 id="modal-title">Nova Câmera</h2>
+      <input type="hidden" id="edit-id">
+      <label>Host *</label>
+      <input type="text" id="input-host" placeholder="192.168.1.100">
+      <label>Porta</label>
+      <input type="number" id="input-port" value="554">
+      <label>Usuário</label>
+      <input type="text" id="input-username" placeholder="admin">
+      <label>Senha</label>
+      <input type="password" id="input-password" placeholder="senha">
+      <label>Path</label>
+      <input type="text" id="input-path" value="/">
+      <label>Nome</label>
+      <input type="text" id="input-name" placeholder="Portaria">
+      <div class="checkbox-row">
+        <input type="checkbox" id="input-enabled" checked>
+        <label style="margin:0">Habilitada</label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn secondary" onclick="closeModal()">Cancelar</button>
+        <button class="btn" id="modal-save-btn" onclick="saveCamera()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+let editingId = null;
+
+async function loadCameras() {
+  const tbody = document.getElementById('camera-tbody');
+  tbody.innerHTML = '<tr><td colspan="8" class="loading"><div class="spinner"></div> Carregando...</td></tr>';
+  try {
+    const res = await fetch('/cameras');
+    const cameras = await res.json();
+    if (cameras.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty">Nenhuma câmera cadastrada.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = cameras.map(c => `
+      <tr>
+        <td>${c.id}</td>
+        <td>${esc(c.host)}</td>
+        <td>${c.port}</td>
+        <td>${esc(c.username)}</td>
+        <td>${esc(c.path)}</td>
+        <td>${esc(c.name)}</td>
+        <td><span class="badge ${c.enabled ? 'on' : 'off'}">${c.enabled ? 'Sim' : 'Não'}</span></td>
+        <td class="actions">
+          <button class="edit" onclick="openEditModal(${c.id})">Editar</button>
+          <button class="delete" onclick="deleteCamera(${c.id})">Excluir</button>
+        </td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty" style="color:#f87171">Erro ao carregar: ${err.message}</td></tr>`;
+  }
+}
+
+function openAddModal() {
+  editingId = null;
+  document.getElementById('modal-title').textContent = 'Nova Câmera';
+  document.getElementById('edit-id').value = '';
+  document.getElementById('input-host').value = '';
+  document.getElementById('input-port').value = '554';
+  document.getElementById('input-username').value = '';
+  document.getElementById('input-password').value = '';
+  document.getElementById('input-path').value = '/';
+  document.getElementById('input-name').value = '';
+  document.getElementById('input-enabled').checked = true;
+  document.getElementById('modal-overlay').classList.add('active');
+}
+
+async function openEditModal(id) {
+  editingId = id;
+  document.getElementById('modal-title').textContent = 'Editar Câmera';
+  try {
+    const res = await fetch('/cameras');
+    const cameras = await res.json();
+    const cam = cameras.find(c => c.id === id);
+    if (!cam) { showToast('Câmera não encontrada', 'error'); return; }
+    document.getElementById('edit-id').value = cam.id;
+    document.getElementById('input-host').value = cam.host;
+    document.getElementById('input-port').value = cam.port;
+    document.getElementById('input-username').value = cam.username;
+    document.getElementById('input-password').value = cam.password;
+    document.getElementById('input-path').value = cam.path;
+    document.getElementById('input-name').value = cam.name;
+    document.getElementById('input-enabled').checked = cam.enabled;
+    document.getElementById('modal-overlay').classList.add('active');
+  } catch (err) {
+    showToast('Erro ao carregar câmera', 'error');
+  }
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('active');
+}
+
+async function saveCamera() {
+  const host = document.getElementById('input-host').value.trim();
+  if (!host) { showToast('Host é obrigatório', 'error'); return; }
+  const body = {
+    host,
+    port: parseInt(document.getElementById('input-port').value) || 554,
+    username: document.getElementById('input-username').value,
+    password: document.getElementById('input-password').value,
+    path: document.getElementById('input-path').value || '/',
+    name: document.getElementById('input-name').value,
+    enabled: document.getElementById('input-enabled').checked,
+  };
+  try {
+    let res;
+    if (editingId) {
+      res = await fetch(`/cameras/${editingId}`, {
+        method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+      });
+    } else {
+      res = await fetch('/cameras', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+      });
+    }
+    if (!res.ok) {
+      const err = await res.json();
+      showToast(err.error || 'Erro ao salvar', 'error');
+      return;
+    }
+    showToast(editingId ? 'Câmera atualizada' : 'Câmera criada', 'success');
+    closeModal();
+    loadCameras();
+  } catch (err) {
+    showToast('Erro ao salvar', 'error');
+  }
+}
+
+async function deleteCamera(id) {
+  if (!confirm('Excluir esta câmera?')) return;
+  try {
+    const res = await fetch(`/cameras/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const err = await res.json();
+      showToast(err.error || 'Erro ao excluir', 'error');
+      return;
+    }
+    showToast('Câmera excluída', 'success');
+    loadCameras();
+  } catch (err) {
+    showToast('Erro ao excluir', 'error');
+  }
+}
+
+let toastTimer = null;
+function showToast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `toast ${type} show`;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+loadCameras();
+document.getElementById('modal-overlay').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('modal-overlay')) closeModal();
+});
+</script>
+</body>
+</html>

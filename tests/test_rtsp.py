@@ -1,4 +1,3 @@
-import json
 import threading
 import time
 from unittest.mock import MagicMock
@@ -8,13 +7,13 @@ import pytest
 
 class TestBuildRtspUrl:
     def test_basic_host_port(self):
-        from webapp.webapp import _build_rtsp_url
+        from webapp.rtsp import _build_rtsp_url
 
         url = _build_rtsp_url({"host": "192.168.1.100", "port": 8080})
         assert url == "rtsp://192.168.1.100:8080/"
 
     def test_with_auth(self):
-        from webapp.webapp import _build_rtsp_url
+        from webapp.rtsp import _build_rtsp_url
 
         url = _build_rtsp_url({
             "host": "10.0.0.50",
@@ -25,7 +24,7 @@ class TestBuildRtspUrl:
         assert url == "rtsp://admin:secret@10.0.0.50:554/"
 
     def test_with_path(self):
-        from webapp.webapp import _build_rtsp_url
+        from webapp.rtsp import _build_rtsp_url
 
         url = _build_rtsp_url({
             "host": "192.168.1.100",
@@ -35,7 +34,7 @@ class TestBuildRtspUrl:
         assert url == "rtsp://192.168.1.100:554/Streaming/Channels/101"
 
     def test_without_username_skips_auth(self):
-        from webapp.webapp import _build_rtsp_url
+        from webapp.rtsp import _build_rtsp_url
 
         url = _build_rtsp_url({
             "host": "192.168.1.100",
@@ -45,60 +44,139 @@ class TestBuildRtspUrl:
         assert url == "rtsp://192.168.1.100:8080/"
 
     def test_default_port(self):
-        from webapp.webapp import _build_rtsp_url
+        from webapp.rtsp import _build_rtsp_url
 
         url = _build_rtsp_url({"host": "10.0.0.1"})
         assert url == "rtsp://10.0.0.1:554/"
 
 
 class TestStartRtspThreads:
-    def test_empty_config_does_nothing(self):
+    def test_empty_config_does_nothing(self, mocker):
         import webapp.config as cfg
-        from webapp.webapp import _start_rtsp_threads
+        from webapp import rtsp
 
-        cfg._CACHE["rtsp_cameras"] = ("[]", "")
-        _start_rtsp_threads()
+        rtsp._RTSP_THREADS.clear()
+        mocker.patch("webapp.database.get_session").return_value.query.return_value.filter_by.return_value.all.return_value = []
+
+        cfg._CACHE["confidence_threshold"] = ("0.0", "")
+        rtsp._start_rtsp_threads()
 
     def test_starts_thread(self, mocker):
         import webapp.config as cfg
-        from webapp import webapp
+        from webapp import rtsp
+        from webapp.database import RtspCamera
 
-        webapp._RTSP_THREADS.clear()
-        mock_thread = mocker.patch.object(webapp.threading, "Thread")
-        cfg._CACHE["rtsp_cameras"] = (
-            json.dumps([{"host": "10.0.0.1", "port": 554}]),
-            "",
-        )
+        rtsp._RTSP_THREADS.clear()
+        mocker.patch("webapp.database.get_session").return_value.query.return_value.filter_by.return_value.all.return_value = [
+            RtspCamera(id=1, host="10.0.0.1", port=554),
+        ]
 
-        webapp._start_rtsp_threads()
+        mock_thread = mocker.patch.object(rtsp.threading, "Thread")
+        cfg._CACHE["confidence_threshold"] = ("0.0", "")
+
+        rtsp._start_rtsp_threads()
 
         mock_thread.assert_called_once()
         _, kwargs = mock_thread.call_args
-        assert kwargs["name"] == "rtsp:10.0.0.1:554"
+        assert kwargs["name"] == "rtsp:1"
         assert kwargs["daemon"] is True
+
+    def test_starts_thread_with_full_config(self, mocker):
+        import webapp.config as cfg
+        from webapp import rtsp
+        from webapp.database import RtspCamera
+
+        rtsp._RTSP_THREADS.clear()
+        mocker.patch("webapp.database.get_session").return_value.query.return_value.filter_by.return_value.all.return_value = [
+            RtspCamera(id=2, host="10.0.0.2", port=8080, username="admin",
+                       password="secret", path="/live", name="Garagem"),
+        ]
+
+        mock_thread = mocker.patch.object(rtsp.threading, "Thread")
+        cfg._CACHE["confidence_threshold"] = ("0.0", "")
+
+        rtsp._start_rtsp_threads()
+
+        mock_thread.assert_called_once()
+        _, kwargs = mock_thread.call_args
+        assert kwargs["name"] == "rtsp:2"
+        cam_dict = kwargs["args"][1]
+        assert cam_dict["host"] == "10.0.0.2"
+        assert cam_dict["port"] == 8080
+        assert cam_dict["username"] == "admin"
+        assert cam_dict["password"] == "secret"
+        assert cam_dict["path"] == "/live"
+        assert cam_dict["name"] == "Garagem"
+
+    def test_skips_disabled_cameras(self, mocker):
+        import webapp.config as cfg
+        from webapp import rtsp
+        from webapp.database import RtspCamera
+
+        rtsp._RTSP_THREADS.clear()
+
+        mock_filter = MagicMock()
+        mock_filter.all.return_value = []
+        mock_session = MagicMock()
+        mock_session.query.return_value.filter_by.return_value = mock_filter
+        mocker.patch("webapp.database.get_session", return_value=mock_session)
+
+        mock_thread = mocker.patch.object(rtsp.threading, "Thread")
+        cfg._CACHE["confidence_threshold"] = ("0.0", "")
+
+        rtsp._start_rtsp_threads()
+
+        mock_session.query.assert_called_once_with(RtspCamera)
+        mock_session.query.return_value.filter_by.assert_called_once_with(enabled=True)
+        mock_thread.assert_not_called()
+
+    def test_orphan_thread_removed(self, mocker):
+        import webapp.config as cfg
+        from webapp import rtsp
+        from webapp.database import RtspCamera
+
+        mock_orphan = MagicMock()
+        mock_orphan.is_alive.return_value = True
+        rtsp._RTSP_THREADS["rtsp:99"] = mock_orphan
+        rtsp._RTSP_CAMERAS["rtsp:99"] = MagicMock()
+
+        mocker.patch("webapp.database.get_session").return_value.query.return_value.filter_by.return_value.all.return_value = [
+            RtspCamera(id=1, host="10.0.0.1", port=554),
+        ]
+
+        mock_thread = mocker.patch.object(rtsp.threading, "Thread")
+        cfg._CACHE["confidence_threshold"] = ("0.0", "")
+
+        rtsp._start_rtsp_threads()
+
+        assert "rtsp:99" not in rtsp._RTSP_THREADS
+        assert "rtsp:99" not in rtsp._RTSP_CAMERAS
 
     def test_thread_only_starts_once(self, mocker):
         import webapp.config as cfg
-        from webapp import webapp
+        from webapp import rtsp
+        from webapp.database import RtspCamera
 
-        webapp._RTSP_THREADS.clear()
-        mock_thread = mocker.patch.object(webapp.threading, "Thread")
-        cfg._CACHE["rtsp_cameras"] = (
-            json.dumps([{"host": "10.0.0.1", "port": 554}]),
-            "",
-        )
+        rtsp._RTSP_THREADS.clear()
+        mocker.patch("webapp.database.get_session").return_value.query.return_value.filter_by.return_value.all.return_value = [
+            RtspCamera(id=1, host="10.0.0.1", port=554),
+        ]
 
-        webapp._start_rtsp_threads()
-        webapp._start_rtsp_threads()
+        mock_thread = mocker.patch.object(rtsp.threading, "Thread")
+        cfg._CACHE["confidence_threshold"] = ("0.0", "")
+
+        rtsp._start_rtsp_threads()
+        rtsp._start_rtsp_threads()
 
         mock_thread.assert_called_once()
 
-    def test_bad_json_does_not_crash(self):
+    def test_bad_db_does_not_crash(self):
+        from webapp import rtsp
         import webapp.config as cfg
-        from webapp.webapp import _start_rtsp_threads
 
-        cfg._CACHE["rtsp_cameras"] = ("not-json", "")
-        _start_rtsp_threads()
+        rtsp._RTSP_THREADS.clear()
+        cfg._CACHE["confidence_threshold"] = ("0.0", "")
+        rtsp._start_rtsp_threads()
 
 
 class TestRtspCaptureLoop:
@@ -114,7 +192,8 @@ class TestRtspCaptureLoop:
 
     def _setup_mocks(self, mocker, plates, mock_cap=None, clear_state=True):
         """Configure mocks for a single-frame RTSP loop."""
-        from webapp.webapp import _seen, _RTSP_CAMERAS
+        from webapp.dedup import _seen
+        from webapp.rtsp import _RTSP_CAMERAS
 
         if clear_state:
             _seen.clear()
@@ -134,7 +213,7 @@ class TestRtspCaptureLoop:
         return mock_cap
 
     def test_saves_detection(self, mocker):
-        from webapp.webapp import _rtsp_capture_loop
+        from webapp.rtsp import _rtsp_capture_loop
 
         self._setup_mocks(mocker, [("ABC1234", 0.95)])
         mock_session = MagicMock()
@@ -158,7 +237,7 @@ class TestRtspCaptureLoop:
         assert det.camera_name == "Test Cam"
 
     def test_skips_low_confidence(self, mocker):
-        from webapp.webapp import _rtsp_capture_loop
+        from webapp.rtsp import _rtsp_capture_loop
 
         self._setup_mocks(mocker, [("ABC1234", 0.3)])
         mock_session = MagicMock()
@@ -178,7 +257,7 @@ class TestRtspCaptureLoop:
         mock_session.add.assert_not_called()
 
     def test_skips_invalid_plate(self, mocker):
-        from webapp.webapp import _rtsp_capture_loop
+        from webapp.rtsp import _rtsp_capture_loop
 
         self._setup_mocks(mocker, [("INVALID", 0.95)])
         mock_session = MagicMock()
@@ -198,7 +277,8 @@ class TestRtspCaptureLoop:
         mock_session.add.assert_not_called()
 
     def test_dedup_blocks_duplicate(self, mocker):
-        from webapp.webapp import _rtsp_capture_loop, _seen, _RTSP_CAMERAS
+        from webapp.dedup import _seen
+        from webapp.rtsp import _RTSP_CAMERAS, _rtsp_capture_loop
 
         _seen.clear()
         _RTSP_CAMERAS.clear()
@@ -223,7 +303,8 @@ class TestRtspCaptureLoop:
         mock_session.add.assert_not_called()
 
     def test_reconnects_on_read_failure(self, mocker):
-        from webapp.webapp import _rtsp_capture_loop, _seen, _RTSP_CAMERAS
+        from webapp.dedup import _seen
+        from webapp.rtsp import _RTSP_CAMERAS, _rtsp_capture_loop
 
         _seen.clear()
         _RTSP_CAMERAS.clear()

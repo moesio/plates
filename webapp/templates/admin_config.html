@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Configurações - ALPR</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f172a; color: #e2e8f0; min-height: 100vh;
+  }
+  .container { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+  h1 {
+    font-size: 1.5rem; font-weight: 700; margin-bottom: 24px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  h1 small { font-size: 0.875rem; font-weight: 400; color: #94a3b8; }
+
+  nav {
+    display: flex; gap: 4px; margin-bottom: 24px;
+    background: #1e293b; border-radius: 10px; padding: 4px;
+  }
+  nav a {
+    padding: 8px 18px; border-radius: 8px; text-decoration: none;
+    color: #94a3b8; font-size: 0.9rem; font-weight: 500; transition: all 0.2s;
+  }
+  nav a:hover { background: #334155; color: #e2e8f0; }
+  nav a.active { background: #22c55e; color: #fff; }
+
+  table { width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 12px; overflow: hidden; }
+  th, td { padding: 12px 14px; text-align: left; font-size: 0.85rem; }
+  th { background: #334155; font-weight: 600; color: #94a3b8; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
+  td { border-top: 1px solid #334155; }
+  tr:hover td { background: #1a253d; }
+  .key-col { font-family: monospace; font-weight: 600; color: #fbbf24; white-space: nowrap; }
+  .desc-col { color: #94a3b8; font-size: 0.8rem; }
+
+  .value-display {
+    display: flex; align-items: center; gap: 8px; justify-content: space-between;
+  }
+  .value-display .val { font-family: monospace; font-size: 0.8rem; word-break: break-all; flex: 1; }
+  .value-display .btn-edit {
+    background: #3b82f6; color: #fff; border: none; border-radius: 6px;
+    padding: 4px 12px; cursor: pointer; font-size: 0.75rem; font-weight: 500;
+    white-space: nowrap; transition: background 0.2s;
+  }
+  .value-display .btn-edit:hover { background: #2563eb; }
+
+  .value-input { display: flex; align-items: center; gap: 6px; }
+  .value-input input {
+    flex: 1; padding: 6px 10px; border: 1px solid #475569; border-radius: 6px;
+    background: #0f172a; color: #e2e8f0; font-size: 0.85rem; font-family: monospace; outline: none;
+  }
+  .value-input input:focus { border-color: #22c55e; }
+  .value-input .btn-save { background: #22c55e; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 0.75rem; font-weight: 600; }
+  .value-input .btn-save:hover { background: #16a34a; }
+  .value-input .btn-cancel { background: #475569; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 0.75rem; font-weight: 600; }
+  .value-input .btn-cancel:hover { background: #64748b; }
+
+  .empty { text-align: center; padding: 48px; color: #475569; font-size: 0.9rem; }
+
+  .toast {
+    position: fixed; bottom: 24px; right: 24px; padding: 12px 20px;
+    border-radius: 10px; font-size: 0.85rem; font-weight: 500; z-index: 200;
+    opacity: 0; transition: opacity 0.3s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  .toast.success { background: #166534; color: #86efac; }
+  .toast.error { background: #7f1d1d; color: #fca5a5; }
+
+  .spinner {
+    display: inline-block; width: 20px; height: 20px;
+    border: 3px solid #334155; border-top-color: #22c55e;
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading { text-align: center; padding: 24px; color: #94a3b8; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1><span>ALPR</span><small>Configurações</small></h1>
+
+  <nav>
+    <a href="/">Monitor</a>
+    <a href="/admin/cameras">Câmeras</a>
+    <a href="/admin/config" class="active">Config</a>
+  </nav>
+
+  <table id="config-table">
+    <thead>
+      <tr>
+        <th style="width:200px">Chave</th>
+        <th>Valor</th>
+        <th style="width:40%">Descrição</th>
+      </tr>
+    </thead>
+    <tbody id="config-tbody">
+      <tr><td colspan="3" class="loading"><div class="spinner"></div> Carregando...</td></tr>
+    </tbody>
+  </table>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+async function loadConfig() {
+  const tbody = document.getElementById('config-tbody');
+  tbody.innerHTML = '<tr><td colspan="3" class="loading"><div class="spinner"></div> Carregando...</td></tr>';
+  try {
+    const res = await fetch('/config');
+    const items = await res.json();
+    if (items.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="3" class="empty">Nenhuma configuração encontrada.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = items.map(item => `
+      <tr>
+        <td class="key-col">${esc(item.key)}</td>
+        <td><div class="value-display" id="val-${esc(item.key)}">
+          <span class="val">${esc(item.value)}</span>
+          <button class="btn-edit" onclick="startEdit('${esc(item.key)}', '${escAttr(item.value)}')">Editar</button>
+        </div></td>
+        <td class="desc-col">${esc(item.description)}</td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="3" class="empty" style="color:#f87171">Erro ao carregar: ${err.message}</td></tr>`;
+  }
+}
+
+function startEdit(key, currentValue) {
+  const display = document.getElementById(`val-${CSS.escape(key)}`);
+  display.innerHTML = `
+    <div class="value-input">
+      <input type="text" id="edit-input-${CSS.escape(key)}" value="${escAttr(currentValue)}">
+      <button class="btn-save" onclick="saveConfig('${esc(key)}')">Salvar</button>
+      <button class="btn-cancel" onclick="cancelEdit('${esc(key)}', '${escAttr(currentValue)}')">Cancelar</button>
+    </div>`;
+  document.getElementById(`edit-input-${CSS.escape(key)}`).focus();
+}
+
+async function saveConfig(key) {
+  const input = document.getElementById(`edit-input-${CSS.escape(key)}`);
+  const value = input.value;
+  try {
+    const res = await fetch(`/config/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({value}),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      showToast(err.error || 'Erro ao salvar', 'error');
+      return;
+    }
+    showToast('Configuração atualizada', 'success');
+    loadConfig();
+  } catch (err) {
+    showToast('Erro ao salvar', 'error');
+  }
+}
+
+function cancelEdit(key, originalValue) {
+  const display = document.getElementById(`val-${CSS.escape(key)}`);
+  display.innerHTML = `
+    <span class="val">${escAttr(originalValue)}</span>
+    <button class="btn-edit" onclick="startEdit('${esc(key)}', '${escAttr(originalValue)}')">Editar</button>`;
+}
+
+let toastTimer = null;
+function showToast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `toast ${type} show`;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+function esc(s) { return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s) { return (s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+loadConfig();
+</script>
+</body>
+</html>

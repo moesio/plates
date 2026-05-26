@@ -1,4 +1,4 @@
-from webapp.webapp import _is_valid_plate
+from webapp.plate import _is_valid_plate
 
 
 class TestPlateValidation:
