@@ -76,6 +76,30 @@ Stored in the `config` PostgreSQL table with an in-memory cache (10s TTL). Chang
 | `dedup_seconds` | `60` | Deduplication window in seconds |
 | `cleanup_interval` | `20` | How often stale dedup cache entries are purged (every N saves) |
 | `confidence_threshold` | `0.0` | Minimum confidence to accept a detection |
+| `rtsp_cameras` | `[]` | Câmeras IP (JSON array, ver seção RTSP) |
+
+### RTSP Cameras
+
+Além da captura pelo navegador, o sistema suporta câmeras IP via RTSP. Configure-as atualizando o parâmetro `rtsp_cameras` com um JSON array:
+
+```bash
+curl -X PUT http://localhost:5000/config/rtsp_cameras \
+  -H "Content-Type: application/json" \
+  -d '{"value": "[{\"host\":\"192.168.1.100\",\"port\":554,\"username\":\"admin\",\"password\":\"12345\",\"path\":\"/Streaming/Channels/101\",\"name\":\"Portaria\"}]"}'
+```
+
+Campos disponíveis por câmera:
+
+| Campo | Obrigatório | Default | Descrição |
+|-------|-------------|---------|-----------|
+| `host` | Sim | — | IP ou hostname da câmera |
+| `port` | Sim | `554` | Porta RTSP |
+| `username` | Não | `""` | Usuário de autenticação |
+| `password` | Não | `""` | Senha de autenticação |
+| `path` | Não | `"/"` | Caminho do stream RTSP |
+| `name` | Não | `"rtsp:<host>:<port>"` | Nome amigável (salvo no banco) |
+
+As threads RTSP são iniciadas automaticamente na primeira requisição HTTP após a aplicação subir. Cada câmera executa em uma *daemon thread* que captura 1 frame por segundo, executa ALPR, valida a placa, deduplica e salva no banco. Se o stream cair, a thread tenta reconectar com backoff exponencial (3s–30s).
 
 ## Project Structure
 
@@ -93,7 +117,8 @@ plates/
 │   ├── test_plate.py      # Plate validation tests (13)
 │   ├── test_config.py     # Config module tests (14)
 │   ├── test_detect.py     # Detect endpoint tests (9)
-│   └── test_api.py        # Config API tests (6)
+│   ├── test_api.py        # Config API tests (6)
+│   └── test_rtsp.py       # RTSP support tests (14)
 ├── alembic/               # Database migrations
 ├── .env.example
 ├── requirements.txt
@@ -107,7 +132,7 @@ source .venv/bin/activate
 python -m pytest tests/ -v
 ```
 
-All 42 tests should pass. Tests mock the database and ALPR model, so no external dependencies are needed.
+All 56 tests should pass. Tests mock the database and ALPR model, so no external dependencies are needed.
 
 ## Key Decisions
 
@@ -116,3 +141,4 @@ All 42 tests should pass. Tests mock the database and ALPR model, so no external
 - **Config** stored in DB table with in-memory cache (10s TTL) so changes take effect without restart; `PUT /config/<key>` forces `reload()` for immediate effect.
 - **Test architecture** uses `autouse` fixture to pre-fill the config cache with defaults, preventing real DB access during tests; ALPR predictions are fully mocked.
 - **Dedup key** includes both `plate_text` and `camera_id` so the same plate from different cameras is treated independently.
+- **RTSP cameras** run in daemon threads started on the first HTTP request; reconnection uses exponential backoff (3s–30s) to avoid flooding the network.

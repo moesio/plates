@@ -12,6 +12,7 @@ _DEFAULTS = {
     "dedup_seconds": ("60", "Janela de deduplicação em segundos"),
     "cleanup_interval": ("20", "Frequência de limpeza do cache (a cada N saves)"),
     "confidence_threshold": ("0.0", "Confiança mínima para aceitar uma detecção"),
+    "rtsp_cameras": ("[]", "Câmeras IP (JSON: [{\"host\":\"...\",\"port\":554}])"),
 }
 
 

@@ -27,7 +27,7 @@ class TestConfigAPI:
         assert resp.status_code == 200
         data = resp.get_json()
         assert isinstance(data, list)
-        assert len(data) == 3
+        assert len(data) == 4
         keys = [item["key"] for item in data]
         assert "dedup_seconds" in keys
         assert "cleanup_interval" in keys
@@ -57,6 +57,22 @@ class TestConfigAPI:
     def test_update_without_value_returns_400(self, client, mock_db_session):
         resp = client.put("/config/dedup_seconds", json={})
         assert resp.status_code == 400
+
+    def test_update_rtsp_cameras_triggers_threads(self, client, mock_db_session, mocker):
+        from webapp.database import Config
+        from webapp import webapp
+
+        webapp._RTSP_THREADS.clear()
+        mock_start = mocker.patch.object(webapp, "_start_rtsp_threads")
+        existing = Config(key="rtsp_cameras", value="[]")
+        mock_db_session.query.return_value.filter_by.return_value.first.return_value = existing
+
+        resp = client.put(
+            "/config/rtsp_cameras",
+            json={"value": '[{"host":"10.0.0.1","port":554}]'},
+        )
+        assert resp.status_code == 200
+        mock_start.assert_called_once()
 
 
 class TestSeedOnFirstRequest:

@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 import threading
@@ -23,8 +24,21 @@ _seen = {}
 _seen_lock = threading.Lock()
 _save_counter = 0
 
+_RTSP_CAMERAS = {}
+_RTSP_CAMERAS_LOCK = threading.Lock()
+_RTSP_THREADS = {}
+
 _PLATE_RE = re.compile(r"^[A-Z]{3}(?:\d{4}|\d[A-Z]\d{2})$")
 
+
+def _build_rtsp_url(cam):
+    host = cam.get("host", "")
+    port = cam.get("port", 554)
+    username = cam.get("username", "")
+    password = cam.get("password", "")
+    path = cam.get("path", "/")
+    auth = f"{username}:{password}@" if username and password else ""
+    return f"rtsp://{auth}{host}:{port}{path}"
 
 def _is_valid_plate(text):
     return bool(_PLATE_RE.match(text.upper().replace("-", "").strip()))
@@ -54,6 +68,113 @@ def _cleanup_stale():
         app.logger.debug("Purged %d stale dedup entries", len(stale))
 
 
+def _rtsp_capture_loop(cam_id, cam_config):
+    reconnect_delay = 3.0
+    while True:
+        try:
+            url = _build_rtsp_url(cam_config)
+            cap = cv2.VideoCapture(url)
+            if not cap.isOpened():
+                app.logger.warning("RTSP %s: cannot open, retry in %.0fs", cam_id, reconnect_delay)
+                time.sleep(reconnect_delay)
+                reconnect_delay = min(reconnect_delay * 1.5, 30.0)
+                continue
+            reconnect_delay = 3.0
+            app.logger.info("RTSP %s: connected", cam_id)
+
+            with _RTSP_CAMERAS_LOCK:
+                _RTSP_CAMERAS[cam_id] = cap
+
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    app.logger.warning("RTSP %s: read failed, reconnecting", cam_id)
+                    break
+
+                results = alpr.predict(frame)
+                min_conf = cfg.get_float("confidence_threshold", 0.0)
+
+                for result in results:
+                    if result.ocr is None:
+                        continue
+                    text = result.ocr.text
+                    conf = result.ocr.confidence
+                    if isinstance(conf, list):
+                        conf = sum(conf) / len(conf) if conf else 0.0
+                    if conf < min_conf:
+                        continue
+                    if not _is_valid_plate(text):
+                        continue
+
+                    _, jpeg_buf = cv2.imencode(".jpg", frame)
+                    image_bytes = jpeg_buf.tobytes()
+
+                    if not _check_dedup(text, cam_id):
+                        continue
+
+                    session = database.get_session()
+                    try:
+                        det = database.Detection(
+                            plate_text=text,
+                            confidence=round(conf, 4),
+                            camera_id=cam_id,
+                            camera_name=cam_config.get("name", cam_id),
+                            image=image_bytes,
+                        )
+                        session.add(det)
+                        session.commit()
+                        app.logger.info("RTSP saved %s from %s", text, cam_id)
+
+                        global _save_counter
+                        _save_counter += 1
+                        cleanup_every = cfg.get_int("cleanup_interval", 20)
+                        if _save_counter % cleanup_every == 0:
+                            _cleanup_stale()
+                    except Exception as e:
+                        app.logger.error("RTSP DB error: %s", e)
+                        session.rollback()
+                    finally:
+                        session.close()
+
+                time.sleep(1.0)
+        except Exception as e:
+            app.logger.error("RTSP %s: unexpected error: %s", cam_id, e, exc_info=True)
+            time.sleep(reconnect_delay)
+            reconnect_delay = min(reconnect_delay * 1.5, 30.0)
+        finally:
+            with _RTSP_CAMERAS_LOCK:
+                cap = _RTSP_CAMERAS.pop(cam_id, None)
+                if cap is not None:
+                    try:
+                        cap.release()
+                    except Exception:
+                        pass
+
+
+_RTSP_THREADS = {}
+
+def _start_rtsp_threads():
+    try:
+        raw = cfg.get("rtsp_cameras", "[]")
+        cameras = json.loads(raw)
+        for cam in cameras:
+            cam_id = f"rtsp:{cam['host']}:{cam['port']}"
+            t = _RTSP_THREADS.get(cam_id)
+            if t is not None and t.is_alive():
+                continue
+            t = threading.Thread(
+                target=_rtsp_capture_loop,
+                args=(cam_id, cam),
+                name=cam_id,
+                daemon=True,
+            )
+            t.start()
+            _RTSP_THREADS[cam_id] = t
+            app.logger.info("Started RTSP thread for %s", cam_id)
+    except Exception as e:
+        app.logger.error("Failed to start RTSP threads: %s", e)
+
+
 @app.before_request
 def _seed_config():
     if not getattr(app, "_config_seeded", False):
@@ -61,9 +182,17 @@ def _seed_config():
             session = database.get_session()
             cfg.seed(session)
             session.close()
+            cfg.reload()
+            _start_rtsp_threads()
         except Exception:
             pass
         app._config_seeded = True
+
+
+# Bootstrap on startup: seed config, reload cache, start RTSP threads.
+# This runs at module load time so RTSP capture begins without waiting
+# for the first HTTP request.
+_seed_config()
 
 
 @app.route("/")
@@ -183,6 +312,8 @@ def update_config(key):
     new_value = row.value
     session.close()
     cfg.reload()
+    if key == "rtsp_cameras":
+        _start_rtsp_threads()
     return jsonify({"key": key, "value": new_value})
 
 

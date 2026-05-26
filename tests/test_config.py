@@ -75,7 +75,7 @@ class TestConfigSeed:
 
         cfg.seed(session)
 
-        assert session.add.call_count == 3
+        assert session.add.call_count == 4
         session.commit.assert_called_once()
 
     def test_seed_skips_existing(self):
