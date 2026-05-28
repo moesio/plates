@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detecções - plates</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #0f172a;
+            color: #e2e8f0;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            min-height: 100vh;
+        }
+        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+        h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.25rem; color: #f1f5f9; }
+        h1 small { font-weight: 400; color: #64748b; }
+        nav { display: flex; gap: 1rem; margin: 1.5rem 0 2rem; border-bottom: 1px solid #1e293b; padding-bottom: 0.75rem; }
+        nav a { color: #64748b; text-decoration: none; font-size: 0.9rem; padding: 0.25rem 0.5rem; border-radius: 4px; transition: all 0.15s; }
+        nav a:hover { color: #e2e8f0; background: #1e293b; }
+        nav a.active { color: #22c55e; background: rgba(34, 197, 94, 0.1); }
+
+        .filters { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+        .filters input, .filters select {
+            background: #1e293b; border: 1px solid #334155; color: #e2e8f0;
+            padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.875rem; outline: none;
+            transition: border-color 0.15s;
+        }
+        .filters input:focus, .filters select:focus { border-color: #22c55e; }
+        .filters input { flex: 1; min-width: 180px; }
+        .filters select { min-width: 200px; }
+        .filters input::placeholder { color: #475569; }
+
+        .table-wrap { overflow-x: auto; border: 1px solid #1e293b; border-radius: 10px; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+        thead { background: #1e293b; }
+        th {
+            padding: 0.75rem 1rem; text-align: left; font-weight: 600; color: #94a3b8;
+            cursor: pointer; user-select: none; white-space: nowrap; transition: color 0.15s;
+        }
+        th:hover { color: #e2e8f0; }
+        th .sort {
+            display: inline-block; margin-left: 0.35rem; color: #475569; transition: color 0.15s;
+        }
+        th:hover .sort { color: #64748b; }
+        th .sort.asc { color: #22c55e; }
+        th .sort.desc { color: #22c55e; }
+        td { padding: 0.65rem 1rem; border-top: 1px solid #1e293b; color: #e2e8f0; }
+        tr { transition: background 0.12s; cursor: pointer; }
+        tr:hover td { background: rgba(34, 197, 94, 0.04); }
+        tr:first-child td { border-top: none; }
+
+        .plate-cell { font-family: 'Courier New', monospace; font-weight: 700; letter-spacing: 1.5px; color: #f1f5f9; }
+        .conf-bar {
+            display: inline-block; width: 48px; height: 4px; background: #334155;
+            border-radius: 2px; overflow: hidden; vertical-align: middle; margin-right: 0.4rem;
+        }
+        .conf-bar span { display: block; height: 100%; border-radius: 2px; background: #22c55e; }
+        .cam-cell { color: #94a3b8; }
+        .time-cell { color: #64748b; white-space: nowrap; font-size: 0.8rem; }
+
+        .spinner { width: 32px; height: 32px; border: 3px solid #1e293b; border-top-color: #22c55e; border-radius: 50%; animation: spin 0.7s linear infinite; margin: 2rem auto; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading { display: flex; justify-content: center; padding: 3rem 0; }
+        .empty { text-align: center; padding: 4rem 0; color: #64748b; font-size: 1rem; }
+        .hidden { display: none !important; }
+        .error { color: #ef4444; text-align: center; padding: 2rem; }
+
+        .pagination { display: flex; justify-content: center; align-items: center; gap: 0.5rem; margin-top: 1.5rem; flex-wrap: wrap; }
+        .pagination .info { color: #64748b; font-size: 0.85rem; margin-right: 1rem; }
+        .pagination button {
+            background: #1e293b; border: 1px solid #334155; color: #e2e8f0;
+            padding: 0.4rem 0.8rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem;
+            transition: all 0.15s;
+        }
+        .pagination button:hover:not(:disabled) { border-color: #22c55e; color: #22c55e; }
+        .pagination button:disabled { opacity: 0.4; cursor: default; }
+        .pagination button.active { background: rgba(34, 197, 94, 0.15); border-color: #22c55e; color: #22c55e; }
+
+        .modal-overlay {
+            display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+            justify-content: center; align-items: center; z-index: 1000; padding: 2rem;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: #1e293b; border-radius: 12px; max-width: 700px; width: 100%;
+            max-height: 90vh; overflow-y: auto; border: 1px solid #334155;
+        }
+        .modal h2 { padding: 1.25rem 1.5rem 0; font-size: 1.5rem; letter-spacing: 2px; font-family: 'Courier New', monospace; color: #f1f5f9; }
+        .modal img { width: 100%; display: block; margin-top: 1rem; background: #0f172a; border-radius: 0; }
+        .modal .info { padding: 1rem 1.5rem; display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.9rem; color: #94a3b8; }
+        .modal .info strong { color: #e2e8f0; }
+        .modal .modal-actions { padding: 1rem 1.5rem 1.5rem; display: flex; justify-content: flex-end; }
+        .btn {
+            background: #334155; border: none; color: #e2e8f0; padding: 0.5rem 1.25rem;
+            border-radius: 6px; cursor: pointer; font-size: 0.875rem; transition: background 0.15s;
+        }
+        .btn:hover { background: #475569; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Plates <small>Detecções</small></h1>
+        <nav>
+            <a href="/">Monitor</a>
+            <a href="/admin/cameras">Câmeras</a>
+            <a href="/admin/detections" class="active">Detecções</a>
+            <a href="/admin/config">Config</a>
+        </nav>
+
+        <div class="filters">
+            <input type="text" id="search" placeholder="Buscar placa..." autocomplete="off">
+            <select id="filter-camera"><option value="">Todas as câmeras</option></select>
+        </div>
+
+        <div class="table-wrap hidden" id="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th onclick="sort('plate_text')">Placa <span class="sort" id="s-plate_text"></span></th>
+                        <th onclick="sort('confidence')">Confiança <span class="sort" id="s-confidence"></span></th>
+                        <th>Câmera</th>
+                        <th onclick="sort('detected_at')">Data <span class="sort" id="s-detected_at"></span></th>
+                    </tr>
+                </thead>
+                <tbody id="tbody"></tbody>
+            </table>
+        </div>
+
+        <div class="loading" id="loading"><div class="spinner"></div></div>
+        <div class="empty hidden" id="empty"><p>Nenhuma detecção encontrada.</p></div>
+        <div class="pagination hidden" id="pagination"></div>
+    </div>
+
+    <div class="modal-overlay" id="modal">
+        <div class="modal">
+            <h2 id="modal-plate"></h2>
+            <img id="modal-image" src="" alt="Detecção">
+            <div class="info">
+                <div><strong>Confiança:</strong> <span id="modal-conf"></span></div>
+                <div><strong>Câmera:</strong> <span id="modal-camera"></span></div>
+                <div><strong>Data:</strong> <span id="modal-date"></span></div>
+            </div>
+            <div class="modal-actions"><button class="btn" onclick="closeModal()">Fechar</button></div>
+        </div>
+    </div>
+
+    <script>
+        let currentPage = 1;
+        let currentQ = '';
+        let currentCamera = '';
+        let sortBy = 'detected_at';
+        let sortOrder = 'desc';
+
+        function closeModal() {
+            document.getElementById('modal').classList.remove('active');
+        }
+        document.getElementById('modal').addEventListener('click', function(e) {
+            if (e.target === this) closeModal();
+        });
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closeModal();
+        });
+
+        function confPct(conf) { return (conf * 100).toFixed(1) + '%'; }
+        function fmtTime(iso) {
+            if (!iso) return '';
+            const d = new Date(iso);
+            return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+
+        function openModal(d) {
+            document.getElementById('modal-plate').textContent = d.plate_text;
+            document.getElementById('modal-image').src = '/detections/' + d.id + '/image';
+            document.getElementById('modal-conf').textContent = confPct(d.confidence);
+            document.getElementById('modal-camera').textContent = d.camera_name || d.camera_id;
+            document.getElementById('modal-date').textContent = fmtTime(d.detected_at);
+            document.getElementById('modal').classList.add('active');
+        }
+
+        function updateSortIcons() {
+            document.querySelectorAll('thead .sort').forEach(function(el) {
+                el.className = 'sort';
+                el.textContent = '';
+            });
+            const active = document.getElementById('s-' + sortBy);
+            if (active) {
+                active.classList.add(sortOrder);
+                active.textContent = sortOrder === 'asc' ? '\u25B2' : '\u25BC';
+            }
+        }
+
+        function sort(col) {
+            if (sortBy === col) {
+                sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortBy = col;
+                sortOrder = col === 'detected_at' ? 'desc' : 'asc';
+            }
+            currentPage = 1;
+            fetchDetections();
+        }
+
+        function renderTable(data) {
+            const wrap = document.getElementById('table-wrap');
+            const tbody = document.getElementById('tbody');
+            const empty = document.getElementById('empty');
+            const loading = document.getElementById('loading');
+            const pagination = document.getElementById('pagination');
+
+            loading.classList.add('hidden');
+            updateSortIcons();
+
+            if (data.detections.length === 0) {
+                wrap.classList.add('hidden');
+                empty.classList.remove('hidden');
+                pagination.classList.add('hidden');
+                return;
+            }
+
+            empty.classList.add('hidden');
+            wrap.classList.remove('hidden');
+            tbody.innerHTML = '';
+
+            data.detections.forEach(function(d) {
+                const pct = (d.confidence * 100).toFixed(0);
+                const tr = document.createElement('tr');
+                tr.innerHTML =
+                    '<td class="plate-cell">' + d.plate_text + '</td>' +
+                    '<td><span class="conf-bar"><span style="width:' + pct + '%"></span></span>' + confPct(d.confidence) + '</td>' +
+                    '<td class="cam-cell">' + (d.camera_name || d.camera_id) + '</td>' +
+                    '<td class="time-cell">' + fmtTime(d.detected_at) + '</td>';
+                tr.addEventListener('click', function() { openModal(d); });
+                tbody.appendChild(tr);
+            });
+
+            renderPagination(data);
+        }
+
+        function renderPagination(data) {
+            const el = document.getElementById('pagination');
+            el.classList.remove('hidden');
+            const totalPages = Math.ceil(data.total / data.per_page);
+            if (totalPages <= 1) { el.classList.add('hidden'); return; }
+
+            let html = '<span class="info">' + data.total + ' resultados</span>';
+            html += '<button ' + (data.page <= 1 ? 'disabled' : '') + ' onclick="goPage(1)">&laquo;</button>';
+            html += '<button ' + (data.page <= 1 ? 'disabled' : '') + ' onclick="goPage(' + (data.page - 1) + ')">&lsaquo;</button>';
+
+            let start = Math.max(1, data.page - 2);
+            let end = Math.min(totalPages, data.page + 2);
+            if (start > 1) html += '<button disabled>...</button>';
+            for (let i = start; i <= end; i++) {
+                html += '<button class="' + (i === data.page ? 'active' : '') + '" onclick="goPage(' + i + ')">' + i + '</button>';
+            }
+            if (end < totalPages) html += '<button disabled>...</button>';
+
+            html += '<button ' + (data.page >= totalPages ? 'disabled' : '') + ' onclick="goPage(' + (data.page + 1) + ')">&rsaquo;</button>';
+            html += '<button ' + (data.page >= totalPages ? 'disabled' : '') + ' onclick="goPage(' + totalPages + ')">&raquo;</button>';
+            el.innerHTML = html;
+        }
+
+        function goPage(page) {
+            currentPage = page;
+            fetchDetections();
+        }
+
+        function fetchDetections() {
+            const loading = document.getElementById('loading');
+            const wrap = document.getElementById('table-wrap');
+            const empty = document.getElementById('empty');
+            const pagination = document.getElementById('pagination');
+
+            wrap.classList.add('hidden');
+            empty.classList.add('hidden');
+            pagination.classList.add('hidden');
+            loading.classList.remove('hidden');
+
+            const params = new URLSearchParams({
+                page: currentPage, per_page: 50,
+                sort_by: sortBy, sort_order: sortOrder,
+            });
+            if (currentQ) params.set('q', currentQ);
+            if (currentCamera) params.set('camera_id', currentCamera);
+
+            fetch('/detections?' + params.toString())
+                .then(function(r) { return r.json(); })
+                .then(function(data) { renderTable(data); })
+                .catch(function() {
+                    loading.classList.add('hidden');
+                    wrap.classList.add('hidden');
+                    empty.classList.remove('hidden');
+                    empty.innerHTML = '<p class="error">Erro ao carregar detecções.</p>';
+                });
+        }
+
+        document.getElementById('search').addEventListener('input', function() {
+            currentQ = this.value;
+            currentPage = 1;
+            fetchDetections();
+        });
+
+        document.getElementById('filter-camera').addEventListener('change', function() {
+            currentCamera = this.value;
+            currentPage = 1;
+            fetchDetections();
+        });
+
+        fetch('/detections/cameras')
+            .then(function(r) { return r.json(); })
+            .then(function(cameras) {
+                const sel = document.getElementById('filter-camera');
+                cameras.forEach(function(c) {
+                    var opt = document.createElement('option');
+                    opt.value = c.camera_id;
+                    opt.textContent = c.camera_name;
+                    sel.appendChild(opt);
+                });
+            })
+            .catch(function() {});
+
+        fetchDetections();
+    </script>
+</body>
+</html>

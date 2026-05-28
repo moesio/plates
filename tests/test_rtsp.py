@@ -170,11 +170,12 @@ class TestRtspCaptureLoop:
     def _setup_mocks(self, mocker, plates, mock_cap=None, clear_state=True):
         """Configure mocks for a single-frame RTSP loop."""
         from webapp.dedup import _seen
-        from webapp.rtsp import _RTSP_CAMERAS
+        from webapp.rtsp import _RTSP_CAMERAS, _RTSP_THREADS
 
         if clear_state:
             _seen.clear()
             _RTSP_CAMERAS.clear()
+            _RTSP_THREADS.clear()
 
         mock_frame = MagicMock()
         if mock_cap is None:
@@ -255,10 +256,11 @@ class TestRtspCaptureLoop:
 
     def test_dedup_blocks_duplicate(self, mocker):
         from webapp.dedup import _seen
-        from webapp.rtsp import _RTSP_CAMERAS, _rtsp_capture_loop
+        from webapp.rtsp import _RTSP_CAMERAS, _RTSP_THREADS, _rtsp_capture_loop
 
         _seen.clear()
         _RTSP_CAMERAS.clear()
+        _RTSP_THREADS.clear()
         _seen[("ABC1234", "rtsp:cam4")] = time.time()
 
         self._setup_mocks(mocker, [("ABC1234", 0.95)], clear_state=False)
