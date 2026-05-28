@@ -110,36 +110,24 @@ def _rtsp_capture_loop(cam_id, cam_config):
                         pass
 
 
-def _stop_orphan_threads(active_ids):
+def _stop_all_rtsp_threads():
     for cam_id in list(_RTSP_THREADS):
-        if cam_id not in active_ids:
-            t = _RTSP_THREADS.pop(cam_id, None)
-            if t is not None:
-                logger.info("Removed orphan RTSP thread reference for %s", cam_id)
-            with _RTSP_CAMERAS_LOCK:
-                cap = _RTSP_CAMERAS.pop(cam_id, None)
-                if cap is not None:
-                    try:
-                        cap.release()
-                    except Exception:
-                        pass
+        _RTSP_THREADS.pop(cam_id, None)
+        with _RTSP_CAMERAS_LOCK:
+            cap = _RTSP_CAMERAS.pop(cam_id, None)
+            if cap is not None:
+                try:
+                    cap.release()
+                except Exception:
+                    pass
 
 
-def _start_rtsp_threads():
+def _start_rtsp_threads(cameras):
     try:
-        session = database.get_session()
-        cameras = session.query(database.RtspCamera).filter_by(enabled=True).all()
-        session.close()
+        _stop_all_rtsp_threads()
 
-        active_ids = set()
         for cam in cameras:
             cam_id = f"rtsp:{cam.id}"
-            active_ids.add(cam_id)
-
-            t = _RTSP_THREADS.get(cam_id)
-            if t is not None and t.is_alive():
-                continue
-
             cam_dict = {
                 "host": cam.host,
                 "port": cam.port,
@@ -157,7 +145,5 @@ def _start_rtsp_threads():
             t.start()
             _RTSP_THREADS[cam_id] = t
             logger.info("Started RTSP thread for rtsp:%s (host=%s)", cam.id, cam.host)
-
-        _stop_orphan_threads(active_ids)
     except Exception as e:
         logger.error("Failed to start RTSP threads: %s", e)

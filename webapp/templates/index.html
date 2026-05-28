@@ -48,14 +48,12 @@
   .viewer.active { display: block; }
   .viewer .stream-wrapper {
     position: relative; background: #000; border-radius: 12px; overflow: hidden;
+    aspect-ratio: 16 / 9; max-height: 70vh;
   }
   .viewer video {
-    display: block; width: 100%; max-height: 70vh;
-    object-fit: contain; border-radius: 12px 12px 0 0;
-  }
-  .viewer canvas {
-    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-    pointer-events: none;
+    display: block; width: 100%; height: 100%;
+    object-fit: contain; object-position: center;
+    border-radius: 12px 12px 0 0;
   }
   .viewer .bar {
     display: flex; align-items: center; justify-content: space-between;
@@ -104,7 +102,6 @@
   <div id="step-viewer" class="viewer">
     <div class="stream-wrapper">
       <video id="video" autoplay playsinline muted></video>
-      <canvas id="overlay"></canvas>
     </div>
     <div class="bar">
       <span class="cam-label" id="cam-label"></span>
@@ -118,6 +115,8 @@
 let mediaStream = null;
 let selectedDeviceId = null;
 let processingTimer = null;
+const _captureCanvas = document.createElement('canvas');
+const _captureCtx = _captureCanvas.getContext('2d');
 
 async function requestCamera() {
   try {
@@ -198,9 +197,8 @@ async function startCamera(deviceId, label) {
     document.getElementById('cam-label').textContent = label;
 
     video.onloadedmetadata = () => {
-      const canvas = document.getElementById('overlay');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      _captureCanvas.width = video.videoWidth;
+      _captureCanvas.height = video.videoHeight;
       startProcessing(label);
     };
   } catch (err) {
@@ -210,22 +208,18 @@ async function startCamera(deviceId, label) {
 
 function startProcessing(camName) {
   const video = document.getElementById('video');
-  const canvas = document.getElementById('overlay');
-  const ctx = canvas.getContext('2d');
   const status = document.getElementById('cam-status');
 
-  let lastDetections = [];
-  let lastTime = 0;
   const INTERVAL_MS = 500;
 
   async function captureAndDetect() {
     if (!mediaStream) return;
 
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0);
+    _captureCanvas.width = video.videoWidth;
+    _captureCanvas.height = video.videoHeight;
+    _captureCtx.drawImage(video, 0, 0);
 
-    canvas.toBlob(async (blob) => {
+    _captureCanvas.toBlob(async (blob) => {
       try {
         const res = await fetch('/detect', {
           method: 'POST',
@@ -242,44 +236,13 @@ function startProcessing(camName) {
         }
 
         const detections = await res.json();
-        lastDetections = detections;
-
-        if (detections.length > 0) {
-          status.textContent = `${detections.length} placa(s) detectada(s)`;
-          drawDetections(ctx, detections);
-        } else {
-          status.textContent = 'Monitorando...';
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-        }
+        status.textContent = detections.length > 0
+          ? `${detections.length} placa(s) detectada(s)`
+          : 'Monitorando...';
       } catch (err) {
         status.textContent = 'Erro de conexão';
       }
     }, 'image/jpeg', 0.7);
-  }
-
-  function drawDetections(ctx, detections) {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    for (const d of detections) {
-      const { x1, y1, x2, y2, plate_text, confidence } = d;
-
-      ctx.strokeStyle = '#22c55e';
-      ctx.lineWidth = 3;
-      ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-
-      ctx.fillStyle = '#22c55e';
-      const label = `${plate_text} (${(confidence * 100).toFixed(0)}%)`;
-      const fontSize = Math.max(14, Math.min(20, (x2 - x1) * 0.08));
-      ctx.font = `bold ${fontSize}px sans-serif`;
-      const textWidth = ctx.measureText(label).width;
-      const textHeight = fontSize + 6;
-      const bx = x1;
-      const by = y1 - textHeight < 0 ? y2 : y1 - textHeight;
-      ctx.fillRect(bx, by, textWidth + 8, textHeight);
-
-      ctx.fillStyle = '#052e16';
-      ctx.fillText(label, bx + 4, by + textHeight - 4);
-    }
   }
 
   if (processingTimer) clearInterval(processingTimer);
@@ -299,10 +262,6 @@ function stopCamera() {
 
   const video = document.getElementById('video');
   video.srcObject = null;
-
-  const canvas = document.getElementById('overlay');
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   document.getElementById('step-viewer').classList.remove('active');
   document.getElementById('step-cameras').classList.remove('hidden');

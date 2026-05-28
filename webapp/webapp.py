@@ -13,7 +13,7 @@ from webapp import database
 from webapp import config as cfg
 from webapp import dedup
 from webapp.plate import _is_valid_plate
-from webapp.rtsp import _start_rtsp_threads
+from webapp.rtsp import _start_rtsp_threads, _stop_all_rtsp_threads
 
 app = Flask(__name__)
 app.logger.setLevel(logging.INFO)
@@ -26,9 +26,12 @@ def _seed_config():
         try:
             session = database.get_session()
             cfg.seed(session)
+            cameras = session.query(database.RtspCamera).filter_by(enabled=True).all()
             session.close()
-            cfg.reload()
-            _start_rtsp_threads()
+            if cameras:
+                _start_rtsp_threads(cameras)
+            else:
+                _stop_all_rtsp_threads()
         except Exception:
             pass
         app._config_seeded = True
@@ -182,7 +185,13 @@ def create_camera():
     session.commit()
     session.refresh(cam)
     session.close()
-    _start_rtsp_threads()
+    session = database.get_session()
+    cameras = session.query(database.RtspCamera).filter_by(enabled=True).all()
+    session.close()
+    if cameras:
+        _start_rtsp_threads(cameras)
+    else:
+        _stop_all_rtsp_threads()
     return jsonify(cam.to_dict()), 201
 
 
@@ -206,7 +215,13 @@ def update_camera(camera_id):
     session.commit()
     session.refresh(cam)
     session.close()
-    _start_rtsp_threads()
+    session = database.get_session()
+    cameras = session.query(database.RtspCamera).filter_by(enabled=True).all()
+    session.close()
+    if cameras:
+        _start_rtsp_threads(cameras)
+    else:
+        _stop_all_rtsp_threads()
     return jsonify(cam.to_dict())
 
 
@@ -220,7 +235,13 @@ def delete_camera(camera_id):
     session.delete(cam)
     session.commit()
     session.close()
-    _start_rtsp_threads()
+    session = database.get_session()
+    cameras = session.query(database.RtspCamera).filter_by(enabled=True).all()
+    session.close()
+    if cameras:
+        _start_rtsp_threads(cameras)
+    else:
+        _stop_all_rtsp_threads()
     return jsonify({"message": "camera deleted"}), 200
 
 
