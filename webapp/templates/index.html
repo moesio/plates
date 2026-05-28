@@ -73,6 +73,23 @@
   .empty { text-align: center; padding: 32px; color: #94a3b8; }
   .error { text-align: center; padding: 32px; color: #f87171; }
 
+  .recent { margin-top: 24px; }
+  .recent h2 { font-size: 1rem; font-weight: 600; color: #94a3b8; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .recent h2 a { color: #64748b; font-weight: 400; font-size: 0.8rem; text-decoration: none; margin-left: auto; }
+  .recent h2 a:hover { color: #22c55e; }
+  .recent-list { display: flex; flex-direction: column; gap: 6px; }
+  .recent-item {
+    display: flex; align-items: center; gap: 12px;
+    background: #1e293b; border: 1px solid #1e293b; border-radius: 8px;
+    padding: 10px 14px; transition: border-color 0.15s; cursor: pointer;
+  }
+  .recent-item:hover { border-color: #334155; }
+  .recent-item .plate { font-family: 'Courier New', monospace; font-weight: 700; font-size: 1rem; letter-spacing: 1px; color: #f1f5f9; min-width: 120px; }
+  .recent-item .meta { display: flex; gap: 16px; font-size: 0.8rem; color: #64748b; flex: 1; }
+  .recent-item .meta .cam { color: #94a3b8; }
+  .recent-item .meta .time { color: #475569; }
+  .recent-item .conf { font-size: 0.8rem; color: #22c55e; }
+
   .hidden { display: none !important; }
 </style>
 </head>
@@ -108,6 +125,13 @@
       <span class="cam-label" id="cam-label"></span>
       <span class="status" id="cam-status">Aguardando...</span>
       <button class="btn danger" onclick="stopCamera()">Parar</button>
+    </div>
+  </div>
+
+  <div class="recent" id="recent">
+    <h2>Últimas detecções <a href="/admin/detections">ver todas</a></h2>
+    <div class="recent-list" id="recent-list">
+      <div class="loading"><div class="spinner"></div></div>
     </div>
   </div>
 </div>
@@ -268,6 +292,40 @@ function stopCamera() {
   document.getElementById('step-cameras').classList.remove('hidden');
   document.getElementById('cam-status').textContent = 'Aguardando...';
 }
+
+function fmtTime(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function fetchRecent() {
+  fetch('/detections?per_page=5&sort_by=detected_at&sort_order=desc')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var list = document.getElementById('recent-list');
+      if (data.detections.length === 0) {
+        list.innerHTML = '<div class="empty" style="padding:16px">Nenhuma detecção ainda.</div>';
+        return;
+      }
+      list.innerHTML = '';
+      data.detections.forEach(function(d) {
+        var pct = (d.confidence * 100).toFixed(0);
+        var item = document.createElement('div');
+        item.className = 'recent-item';
+        item.innerHTML =
+          '<span class="plate">' + d.plate_text + '</span>' +
+          '<span class="meta"><span class="cam">' + (d.camera_name || d.camera_id) + '</span><span class="time">' + fmtTime(d.detected_at) + '</span></span>' +
+          '<span class="conf">' + pct + '%</span>';
+        item.addEventListener('click', function() { window.location = '/admin/detections'; });
+        list.appendChild(item);
+      });
+    })
+    .catch(function() {});
+}
+
+setInterval(fetchRecent, 3000);
+fetchRecent();
 </script>
 </body>
 </html>
