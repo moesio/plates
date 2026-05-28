@@ -87,15 +87,10 @@
 
   <h1><span>ALPR</span><small>Reconhecimento de Placas</small></h1>
 
-  <div id="step-loading" class="permission-prompt">
-    <div class="spinner" style="width:40px;height:40px;border-width:4px;margin:0 auto 16px"></div>
-    <p>Verificando câmera...</p>
-  </div>
-
-  <div id="step-permission" class="permission-prompt hidden">
+  <div id="step-permission" class="permission-prompt">
     <div class="icon">📷</div>
-    <p id="permission-msg">Este aplicativo precisa acessar sua câmera para reconhecer placas de veículos.</p>
-    <button class="btn" id="btn-permission" onclick="requestCamera()">Permitir Acesso à Câmera</button>
+    <p>Este aplicativo precisa acessar sua câmera para reconhecer placas de veículos.</p>
+    <button class="btn" onclick="requestCamera()">Permitir Acesso à Câmera</button>
   </div>
 
   <div id="step-cameras" class="hidden">
@@ -124,52 +119,21 @@ let processingTimer = null;
 const _captureCanvas = document.createElement('canvas');
 const _captureCtx = _captureCanvas.getContext('2d');
 
-function showStep(id) {
-  ['step-loading', 'step-permission', 'step-cameras', 'step-viewer'].forEach(function(s) {
-    var el = document.getElementById(s);
-    if (el) el.classList.toggle('hidden', s !== id);
-  });
-}
-
 async function requestCamera() {
   try {
-    var stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-    stream.getTracks().forEach(function(t) { t.stop(); });
-    showStep('step-cameras');
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    stream.getTracks().forEach(t => t.stop());
+    document.getElementById('step-permission').classList.add('hidden');
+    document.getElementById('step-cameras').classList.remove('hidden');
     await listCameras();
   } catch (err) {
-    document.getElementById('permission-msg').textContent = 'Erro ao acessar câmera: ' + err.message;
-    document.getElementById('btn-permission').textContent = 'Tentar Novamente';
-    showStep('step-permission');
+    document.getElementById('step-permission').innerHTML = `
+      <div class="error">
+        <p>Erro ao acessar câmera: ${err.message}</p>
+        <button class="btn" onclick="requestCamera()" style="margin-top:12px">Tentar Novamente</button>
+      </div>`;
   }
 }
-
-(function init() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    document.getElementById('permission-msg').textContent = 'Câmera não suportada neste navegador.';
-    document.getElementById('btn-permission').classList.add('hidden');
-    showStep('step-permission');
-    return;
-  }
-
-  var check = function() {
-    navigator.permissions.query({ name: 'camera' }).then(function(result) {
-      if (result.state === 'granted') {
-        requestCamera();
-      } else {
-        showStep('step-permission');
-      }
-    }).catch(function() {
-      showStep('step-permission');
-    });
-  };
-
-  if (navigator.permissions && navigator.permissions.query) {
-    check();
-  } else {
-    showStep('step-permission');
-  }
-})();
 
 async function listCameras() {
   const container = document.getElementById('camera-list');
