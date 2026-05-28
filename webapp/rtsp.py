@@ -4,10 +4,7 @@ import time
 
 import cv2
 
-from webapp import config as cfg
-from webapp import database
-from webapp import dedup
-from webapp.plate import _is_valid_plate
+from webapp.detection import _process_alpr_results
 
 logger = logging.getLogger(__name__)
 
@@ -52,49 +49,9 @@ def _rtsp_capture_loop(cam_id, cam_config):
                     break
 
                 results = alpr.predict(frame)
-                min_conf = cfg.get_float("confidence_threshold", 0.0)
-
-                for result in results:
-                    if result.ocr is None:
-                        continue
-                    text = result.ocr.text
-                    conf = result.ocr.confidence
-                    if isinstance(conf, list):
-                        conf = sum(conf) / len(conf) if conf else 0.0
-                    if conf < min_conf:
-                        continue
-                    if not _is_valid_plate(text):
-                        continue
-
-                    _, jpeg_buf = cv2.imencode(".jpg", frame)
-                    image_bytes = jpeg_buf.tobytes()
-
-                    if not dedup._check_dedup(text, cam_id):
-                        continue
-
-                    session = database.get_session()
-                    try:
-                        det = database.Detection(
-                            plate_text=text,
-                            confidence=round(conf, 4),
-                            camera_id=cam_id,
-                            camera_name=cam_config.get("name", cam_id),
-                            image=image_bytes,
-                        )
-                        session.add(det)
-                        session.commit()
-                        logger.info("RTSP saved %s from %s", text, cam_id)
-
-                        dedup._save_counter += 1
-                        cleanup_every = cfg.get_int("cleanup_interval", 20)
-                        if dedup._save_counter % cleanup_every == 0:
-                            dedup._cleanup_stale()
-                    except Exception as e:
-                        logger.error("RTSP DB error: %s", e)
-                        session.rollback()
-                    finally:
-                        session.close()
-
+                _process_alpr_results(
+                    results, frame, cam_id, cam_config.get("name", cam_id),
+                )
                 time.sleep(1.0)
         except Exception as e:
             logger.error("RTSP %s: unexpected error: %s", cam_id, e, exc_info=True)

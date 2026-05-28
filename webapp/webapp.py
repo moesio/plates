@@ -5,14 +5,13 @@ from urllib.parse import unquote
 
 import cv2
 import numpy as np
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request
 from fast_alpr import ALPR
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from webapp import database
 from webapp import config as cfg
-from webapp import dedup
-from webapp.plate import _is_valid_plate
+from webapp.detection import _process_alpr_results
 from webapp.rtsp import _start_rtsp_threads, _stop_all_rtsp_threads
 
 app = Flask(__name__)
@@ -57,75 +56,17 @@ def detect():
         return jsonify({"error": "invalid image"}), 400
 
     results = alpr.predict(frame)
-    detections = []
-    min_conf = cfg.get_float("confidence_threshold", 0.0)
-
-    for result in results:
-        if result.ocr is None:
-            continue
-        bbox = result.detection.bounding_box
-        text = result.ocr.text
-        conf = result.ocr.confidence
-        if isinstance(conf, list):
-            conf = sum(conf) / len(conf) if conf else 0.0
-        if conf < min_conf:
-            continue
-
-        detections.append({
-            "plate_text": text,
-            "confidence": round(conf, 4),
-            "x1": bbox.x1,
-            "y1": bbox.y1,
-            "x2": bbox.x2,
-            "y2": bbox.y2,
-        })
-
-    before = len(detections)
-    detections = [d for d in detections if _is_valid_plate(d["plate_text"])]
-    invalid = before - len(detections)
 
     cam_id = request.headers.get("X-Camera-Id", "0")
     cam_name_raw = request.headers.get("X-Camera-Name", "Browser Camera")
     cam_name = unquote(cam_name_raw)
 
+    detections = _process_alpr_results(results, frame, cam_id, cam_name, include_bbox=True)
+
     app.logger.info(
-        "Detected %d plate(s), %d invalid, image size: %d bytes",
-        len(detections), invalid, len(image_bytes),
+        "Detected %d plate(s), image size: %d bytes",
+        len(detections), len(image_bytes),
     )
-
-    saved = 0
-    skipped = 0
-
-    for d in detections:
-        if not dedup._check_dedup(d["plate_text"], cam_id):
-            skipped += 1
-            continue
-
-        try:
-            session = database.get_session()
-            det = database.Detection(
-                plate_text=d["plate_text"],
-                confidence=d["confidence"],
-                camera_id=cam_id,
-                camera_name=cam_name,
-                image=image_bytes,
-            )
-            session.add(det)
-            session.commit()
-            saved += 1
-            app.logger.info("Saved plate %s to DB", d["plate_text"])
-        except Exception as e:
-            app.logger.error("DB error saving %s: %s", d["plate_text"], e)
-        finally:
-            session.close()
-
-    dedup._save_counter += 1
-    window = cfg.get_int("dedup_seconds", 60)
-    cleanup_every = cfg.get_int("cleanup_interval", 20)
-    if dedup._save_counter % cleanup_every == 0:
-        dedup._cleanup_stale()
-
-    app.logger.info("Plates: %d saved, %d skipped (dedup window: %ds)", saved, skipped, window)
 
     return jsonify(detections)
 
@@ -253,6 +194,95 @@ def admin_cameras():
 @app.route("/admin/config")
 def admin_config():
     return render_template("admin_config.html")
+
+
+@app.route("/admin/detections")
+def admin_detections():
+    return render_template("detections.html")
+
+
+@app.route("/detections", methods=["GET"])
+def list_detections():
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 50, type=int)
+    per_page = min(per_page, 200)
+    q = request.args.get("q", "")
+    camera_id = request.args.get("camera_id", "")
+    sort_by = request.args.get("sort_by", "detected_at")
+    sort_order = request.args.get("sort_order", "desc")
+
+    allowed_sort = {"detected_at", "plate_text", "confidence"}
+    if sort_by not in allowed_sort:
+        sort_by = "detected_at"
+    sort_col = getattr(database.Detection, sort_by)
+    if sort_order == "asc":
+        sort_col = sort_col.asc()
+    else:
+        sort_col = sort_col.desc()
+
+    session = database.get_session()
+    query = session.query(database.Detection)
+
+    if q:
+        query = query.filter(database.Detection.plate_text.ilike(f"%{q}%"))
+    if camera_id:
+        query = query.filter(database.Detection.camera_id == camera_id)
+
+    total = query.count()
+    detections = (
+        query.order_by(sort_col)
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+        .all()
+    )
+    session.close()
+
+    return jsonify({
+        "detections": [
+            {
+                "id": d.id,
+                "plate_text": d.plate_text,
+                "confidence": d.confidence,
+                "camera_id": d.camera_id,
+                "camera_name": d.camera_name,
+                "detected_at": d.detected_at.isoformat() if d.detected_at else None,
+                "has_image": d.image is not None,
+            }
+            for d in detections
+        ],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    })
+
+
+@app.route("/detections/cameras", methods=["GET"])
+def list_detection_cameras():
+    session = database.get_session()
+    rows = (
+        session.query(
+            database.Detection.camera_id,
+            database.Detection.camera_name,
+        )
+        .distinct()
+        .order_by(database.Detection.camera_name, database.Detection.camera_id)
+        .all()
+    )
+    session.close()
+    return jsonify([
+        {"camera_id": r.camera_id, "camera_name": r.camera_name or r.camera_id}
+        for r in rows
+    ])
+
+
+@app.route("/detections/<int:detection_id>/image")
+def detection_image(detection_id):
+    session = database.get_session()
+    det = session.query(database.Detection).filter_by(id=detection_id).first()
+    session.close()
+    if det is None or det.image is None:
+        return jsonify({"error": "not found"}), 404
+    return Response(det.image, mimetype="image/jpeg")
 
 
 if __name__ == "__main__":
