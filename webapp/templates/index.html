@@ -90,6 +90,12 @@
   .recent-item .meta .time { color: #475569; }
   .recent-item .conf { font-size: 0.8rem; color: #22c55e; }
 
+  @keyframes plate-new {
+    0% { background: #052e16; border-color: #22c55e; box-shadow: 0 0 12px rgba(34,197,94,0.3); }
+    100% { background: #1e293b; border-color: #1e293b; box-shadow: none; }
+  }
+  .recent-item.new { animation: plate-new 2s ease-out forwards; }
+
   .hidden { display: none !important; }
 </style>
 </head>
@@ -300,6 +306,7 @@ function startProcessing(camName) {
         status.textContent = detections.length > 0
           ? `${detections.length} placa(s) detectada(s)`
           : 'Monitorando...';
+        if (detections.length > 0) fetchRecent();
       } catch (err) {
         status.textContent = 'Erro de conexão';
       }
@@ -335,6 +342,7 @@ function fmtTime(iso) {
   return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
+var _knownIds = {};
 function fetchRecent() {
   fetch('/detections?per_page=5&sort_by=detected_at&sort_order=desc')
     .then(function(r) { return r.json(); })
@@ -349,6 +357,8 @@ function fetchRecent() {
         var pct = (d.confidence * 100).toFixed(0);
         var item = document.createElement('div');
         item.className = 'recent-item';
+        if (!_knownIds[d.id]) item.classList.add('new');
+        _knownIds[d.id] = true;
         item.innerHTML =
           '<span class="plate">' + d.plate_text + '</span>' +
           '<span class="meta"><span class="cam">' + (d.camera_name || d.camera_id) + '</span><span class="time">' + fmtTime(d.detected_at) + '</span></span>' +
