@@ -1,12 +1,18 @@
 import logging
+import os
 import threading
 import time
 
 import cv2
+import numpy as np
 
 from webapp.detection import _process_alpr_results
 
 logger = logging.getLogger(__name__)
+
+_DEBUG_DIR = os.path.join(os.path.dirname(__file__), "..", "debug")
+_SAVE_INTERVAL = 30  # save one frame every N iterations per camera
+_frame_counters = {}
 
 _RTSP_CAMERAS = {}
 _RTSP_CAMERAS_LOCK = threading.Lock()
@@ -43,15 +49,31 @@ def _rtsp_capture_loop(cam_id, cam_config):
                 _RTSP_CAMERAS[cam_id] = cap
 
             while True:
-                ret, frame = cap.read()
-                if not ret:
+                ok, frame = cap.read()
+                if not ok:
                     logger.warning("RTSP %s: read failed, reconnecting", cam_id)
                     break
 
-                results = alpr.predict(frame)
-                _process_alpr_results(
-                    results, frame, cam_id, cam_config.get("name", cam_id),
-                )
+                success, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+
+                if success:
+                    image_bytes = buffer.tobytes()
+                    np_arr = np.frombuffer(image_bytes, np.uint8)
+                    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+                    results = alpr.predict(frame)
+                    logger.info("RTSP %s: alpr.predict returned %d result(s)", cam_id, len(results))
+
+                    if len(results) == 0:
+                        _frame_counters[cam_id] = _frame_counters.get(cam_id, 0) + 1
+                        if _frame_counters[cam_id] % _SAVE_INTERVAL == 1:
+                            os.makedirs(_DEBUG_DIR, exist_ok=True)
+                            ts = time.strftime("%Y%m%d-%H%M%S")
+                            path = os.path.join(_DEBUG_DIR, f"rtsp_{cam_id}_{ts}.jpg")
+                            cv2.imwrite(path, frame)
+                            logger.info("RTSP %s: saved debug frame to %s", cam_id, path)
+
+                    _process_alpr_results(results, frame, cam_id, cam_config.get("name", cam_id), include_bbox=True)
                 time.sleep(1.0)
         except Exception as e:
             logger.error("RTSP %s: unexpected error: %s", cam_id, e, exc_info=True)

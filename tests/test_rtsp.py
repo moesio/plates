@@ -2,6 +2,7 @@ import threading
 import time
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 
 
@@ -177,14 +178,12 @@ class TestRtspCaptureLoop:
             _RTSP_CAMERAS.clear()
             _RTSP_THREADS.clear()
 
-        mock_frame = MagicMock()
+        mock_frame = np.zeros((100, 100, 3), dtype=np.uint8)
         if mock_cap is None:
             mock_cap = MagicMock()
             mock_cap.isOpened.return_value = True
             mock_cap.read.side_effect = [(True, mock_frame), (False, None)]
             mocker.patch("cv2.VideoCapture", return_value=mock_cap)
-
-        mocker.patch("cv2.imencode", return_value=(True, MagicMock()))
 
         alpr_mock = mocker.patch("webapp.webapp.alpr.predict")
         alpr_mock.return_value = [self._make_result(*p) for p in plates]
