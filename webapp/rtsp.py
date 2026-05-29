@@ -64,14 +64,16 @@ def _rtsp_capture_loop(cam_id, cam_config):
                     results = alpr.predict(frame)
                     logger.info("RTSP %s: alpr.predict returned %d result(s)", cam_id, len(results))
 
-                    if len(results) == 0:
-                        _frame_counters[cam_id] = _frame_counters.get(cam_id, 0) + 1
-                        if _frame_counters[cam_id] % _SAVE_INTERVAL == 1:
-                            os.makedirs(_DEBUG_DIR, exist_ok=True)
-                            ts = time.strftime("%Y%m%d-%H%M%S")
-                            path = os.path.join(_DEBUG_DIR, f"rtsp_{cam_id}_{ts}.jpg")
-                            cv2.imwrite(path, frame)
-                            logger.info("RTSP %s: saved debug frame to %s", cam_id, path)
+                    if logger.getEffectiveLevel() == logging.DEBUG:
+                        if len(results) == 0:
+                            _frame_counters[cam_id] = _frame_counters.get(cam_id, 0) + 1
+                            if _frame_counters[cam_id] % _SAVE_INTERVAL == 1:
+                                os.makedirs(_DEBUG_DIR, exist_ok=True)
+                                ts = time.strftime("%Y%m%d-%H%M%S")
+                                path = os.path.join(_DEBUG_DIR, f"rtsp_{cam_id}_{ts}.jpg")
+                                cv2.imwrite(path, frame)
+                                logger.info("RTSP %s: saved debug frame to %s", cam_id, path)
+
 
                     _process_alpr_results(results, frame, cam_id, cam_config.get("name", cam_id), include_bbox=True)
                 time.sleep(1.0)
