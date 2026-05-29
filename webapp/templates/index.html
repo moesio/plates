@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ALPR - Reconhecimento de Placas</title>
+<title>Monitor - ALPR</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -16,6 +16,17 @@
     display: flex; align-items: center; gap: 8px;
   }
   h1 small { font-size: 0.875rem; font-weight: 400; color: #94a3b8; }
+
+  nav {
+    display: flex; gap: 4px; margin-bottom: 24px;
+    background: #1e293b; border-radius: 10px; padding: 4px;
+  }
+  nav a {
+    padding: 8px 18px; border-radius: 8px; text-decoration: none;
+    color: #94a3b8; font-size: 0.9rem; font-weight: 500; transition: all 0.2s;
+  }
+  nav a:hover { background: #334155; color: #e2e8f0; }
+  nav a.active { background: #22c55e; color: #fff; }
 
   .permission-prompt {
     text-align: center; padding: 48px 16px; color: #94a3b8;
@@ -101,14 +112,14 @@
 </head>
 <body>
 <div class="container">
-  <nav style="display:flex;gap:4px;margin-bottom:24px;background:#1e293b;border-radius:10px;padding:4px">
-    <a href="/" style="padding:8px 18px;border-radius:8px;text-decoration:none;color:#e2e8f0;font-size:0.9rem;font-weight:500;background:#22c55e">Monitor</a>
-    <a href="/admin/cameras" style="padding:8px 18px;border-radius:8px;text-decoration:none;color:#94a3b8;font-size:0.9rem;font-weight:500;transition:all 0.2s">Câmeras</a>
-    <a href="/admin/detections" style="padding:8px 18px;border-radius:8px;text-decoration:none;color:#94a3b8;font-size:0.9rem;font-weight:500;transition:all 0.2s">Detecções</a>
-    <a href="/admin/config" style="padding:8px 18px;border-radius:8px;text-decoration:none;color:#94a3b8;font-size:0.9rem;font-weight:500;transition:all 0.2s">Config</a>
-  </nav>
-
   <h1><span>ALPR</span><small>Reconhecimento de Placas</small></h1>
+
+  <nav>
+    <a href="/" class="active">Monitor</a>
+    <a href="/admin/cameras">Câmeras</a>
+    <a href="/admin/detections">Detecções</a>
+    <a href="/admin/config">Config</a>
+  </nav>
 
   <div id="step-loading" class="permission-prompt">
     <div class="spinner" style="width:40px;height:40px;border-width:4px;margin:0 auto 16px"></div>

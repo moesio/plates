@@ -1,10 +1,11 @@
+import os
 import threading
 import time
 
 from webapp import database
 
 _CACHE = None
-_CACHE_TTL = 10
+_CACHE_TTL = int(os.getenv("CONFIG_CACHE_TTL", "10"))
 _CACHE_TIME = 0
 _LOCK = threading.Lock()
 

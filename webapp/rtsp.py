@@ -10,8 +10,16 @@ from webapp.detection import _process_alpr_results
 
 logger = logging.getLogger(__name__)
 
-_DEBUG_DIR = os.path.join(os.path.dirname(__file__), "..", "debug")
-_SAVE_INTERVAL = 30  # save one frame every N iterations per camera
+_DEBUG_DIR = os.getenv(
+    "RTSP_DEBUG_DIR",
+    os.path.join(os.path.dirname(__file__), "..", "debug"),
+)
+_SAVE_INTERVAL = int(os.getenv("RTSP_DEBUG_SAVE_INTERVAL", "30"))
+_JPEG_QUALITY = int(os.getenv("RTSP_JPEG_QUALITY", "70"))
+_RECONNECT_DELAY_INITIAL = float(os.getenv("RTSP_RECONNECT_DELAY", "3.0"))
+_RECONNECT_BACKOFF = float(os.getenv("RTSP_RECONNECT_BACKOFF", "1.5"))
+_RECONNECT_DELAY_MAX = float(os.getenv("RTSP_RECONNECT_DELAY_MAX", "30.0"))
+_FRAME_SLEEP = float(os.getenv("RTSP_FRAME_SLEEP", "1.0"))
 _frame_counters = {}
 
 _RTSP_CAMERAS = {}
@@ -30,9 +38,9 @@ def _build_rtsp_url(cam):
 
 
 def _rtsp_capture_loop(cam_id, cam_config):
-    from webapp.webapp import alpr
+    from webapp.alpr import alpr
 
-    reconnect_delay = 3.0
+    reconnect_delay = _RECONNECT_DELAY_INITIAL
     while True:
         try:
             url = _build_rtsp_url(cam_config)
@@ -40,9 +48,9 @@ def _rtsp_capture_loop(cam_id, cam_config):
             if not cap.isOpened():
                 logger.warning("RTSP %s: cannot open, retry in %.0fs", cam_id, reconnect_delay)
                 time.sleep(reconnect_delay)
-                reconnect_delay = min(reconnect_delay * 1.5, 30.0)
+                reconnect_delay = min(reconnect_delay * _RECONNECT_BACKOFF, _RECONNECT_DELAY_MAX)
                 continue
-            reconnect_delay = 3.0
+            reconnect_delay = _RECONNECT_DELAY_INITIAL
             logger.info("RTSP %s: connected", cam_id)
 
             with _RTSP_CAMERAS_LOCK:
@@ -54,7 +62,7 @@ def _rtsp_capture_loop(cam_id, cam_config):
                     logger.warning("RTSP %s: read failed, reconnecting", cam_id)
                     break
 
-                success, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                success, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, _JPEG_QUALITY])
 
                 if success:
                     image_bytes = buffer.tobytes()
@@ -76,11 +84,11 @@ def _rtsp_capture_loop(cam_id, cam_config):
 
 
                     _process_alpr_results(results, frame, cam_id, cam_config.get("name", cam_id), include_bbox=True)
-                time.sleep(1.0)
+                time.sleep(_FRAME_SLEEP)
         except Exception as e:
             logger.error("RTSP %s: unexpected error: %s", cam_id, e, exc_info=True)
             time.sleep(reconnect_delay)
-            reconnect_delay = min(reconnect_delay * 1.5, 30.0)
+            reconnect_delay = min(reconnect_delay * _RECONNECT_BACKOFF, _RECONNECT_DELAY_MAX)
         finally:
             with _RTSP_CAMERAS_LOCK:
                 cap = _RTSP_CAMERAS.pop(cam_id, None)

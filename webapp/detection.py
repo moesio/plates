@@ -9,6 +9,8 @@ from webapp.plate import _is_valid_plate
 
 logger = logging.getLogger(__name__)
 
+_CONFIDENCE_PRECISION = 4
+
 
 def _process_alpr_results(results, frame, cam_id, cam_name, include_bbox=False):
     min_conf = cfg.get_float("confidence_threshold", 0.0)
@@ -26,7 +28,7 @@ def _process_alpr_results(results, frame, cam_id, cam_name, include_bbox=False):
         if not _is_valid_plate(text):
             continue
 
-        entry = {"plate_text": text, "confidence": round(conf, 4)}
+        entry = {"plate_text": text, "confidence": round(conf, _CONFIDENCE_PRECISION)}
         if include_bbox:
             bbox = result.detection.bounding_box
             entry.update({

@@ -63,7 +63,7 @@ def mock_alpr(mocker):
             results.append(ALPRResult(detection=det, ocr=ocr))
         return results
 
-    mock = mocker.patch("webapp.webapp.alpr.predict")
+    mock = mocker.patch("webapp.alpr.alpr.predict")
     mock.side_effect = lambda frame: make_results(mock._plates or [])
     mock._plates = []
     return mock

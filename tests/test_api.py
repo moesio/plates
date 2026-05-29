@@ -101,7 +101,7 @@ class TestConfigAPI:
     def test_create_camera(self, client, mock_db_session, mocker):
         from webapp.database import RtspCamera
 
-        mock_start = mocker.patch("webapp.webapp._start_rtsp_threads")
+        mock_start = mocker.patch("webapp.services.camera_service._start_rtsp_threads")
 
         resp = client.post("/cameras", json={"host": "10.0.0.1", "port": 554})
         assert resp.status_code == 201
@@ -137,7 +137,7 @@ class TestConfigAPI:
     def test_update_camera(self, client, mock_db_session, mocker):
         from webapp.database import RtspCamera
 
-        mock_start = mocker.patch("webapp.webapp._start_rtsp_threads")
+        mock_start = mocker.patch("webapp.services.camera_service._start_rtsp_threads")
         cam = RtspCamera(id=1, host="10.0.0.1", port=554, name="Old Name")
         mock_db_session.query.return_value.filter_by.return_value.first.return_value = cam
 
@@ -159,7 +159,7 @@ class TestConfigAPI:
     def test_delete_camera(self, client, mock_db_session, mocker):
         from webapp.database import RtspCamera
 
-        mock_start = mocker.patch("webapp.webapp._start_rtsp_threads")
+        mock_start = mocker.patch("webapp.services.camera_service._start_rtsp_threads")
         cam = RtspCamera(id=1, host="10.0.0.1", port=554)
         mock_db_session.query.return_value.filter_by.return_value.first.return_value = cam
 
@@ -177,7 +177,7 @@ class TestConfigAPI:
 
 class TestSeedOnFirstRequest:
     def test_seed_runs_once(self, client, mocker):
-        mock_seed = mocker.patch("webapp.webapp.cfg.seed")
+        mock_seed = mocker.patch("webapp.app.cfg.seed")
         mock_session = MagicMock()
         mocker.patch("webapp.database.get_session", return_value=mock_session)
 
@@ -190,7 +190,7 @@ class TestSeedOnFirstRequest:
         assert mock_seed.call_count == 1
 
     def test_seed_skipped_if_already_seeded(self, client, mocker):
-        mock_seed = mocker.patch("webapp.webapp.cfg.seed")
+        mock_seed = mocker.patch("webapp.app.cfg.seed")
         mocker.patch("webapp.database.get_session")
 
         client.application._config_seeded = True
