@@ -35,12 +35,12 @@ alembic upgrade head
 python webapp/webapp.py
 ```
 
-Open `http://localhost:5000` in a browser. The app will request camera access and begin detecting plates automatically.
+Open `http://localhost:5001` in a browser. The app will request camera access and begin detecting plates automatically.
 
 For HTTPS access from mobile devices (required for `getUserMedia` over non-localhost), use `ngrok` or a self-signed certificate:
 
 ```bash
-ngrok http 5000
+ngrok http 5001
 ```
 
 ## API Endpoints
@@ -83,7 +83,7 @@ Stored in the `config` PostgreSQL table with an in-memory cache (10s TTL). Chang
 Além da captura pelo navegador, o sistema suporta câmeras IP via RTSP. Configure-as atualizando o parâmetro `rtsp_cameras` com um JSON array:
 
 ```bash
-curl -X PUT http://localhost:5000/config/rtsp_cameras \
+curl -X PUT http://localhost:5001/config/rtsp_cameras \
   -H "Content-Type: application/json" \
   -d '{"value": "[{\"host\":\"192.168.1.100\",\"port\":554,\"username\":\"admin\",\"password\":\"12345\",\"path\":\"/Streaming/Channels/101\",\"name\":\"Portaria\"}]"}'
 ```
