@@ -5,8 +5,8 @@ import cv2
 import numpy as np
 from flask import Blueprint, jsonify, request
 
-from webapp import config as cfg, database
-from webapp.database import Config
+from webapp import config as cfg
+from webapp.database import db, Config
 from webapp.detection import _process_alpr_results
 from webapp.services.camera_service import CameraService
 from webapp.services.detection_service import DetectionService
@@ -51,17 +51,13 @@ def update_config(key):
     data = request.get_json()
     if not data or "value" not in data:
         return jsonify({"error": "value is required"}), 400
-    session = database.get_session()
-    row = session.query(Config).filter_by(key=key).first()
+    row = db.session.query(Config).filter_by(key=key).first()
     if row is None:
-        session.close()
         return jsonify({"error": "config key not found"}), 404
     row.value = str(data["value"])
-    session.commit()
-    new_value = row.value
-    session.close()
+    db.session.commit()
     cfg.reload()
-    return jsonify({"key": key, "value": new_value})
+    return jsonify({"key": key, "value": row.value})
 
 
 @api_bp.route("/cameras", methods=["GET"])

@@ -1,4 +1,7 @@
 from flask import Blueprint, render_template
+from sqlalchemy import text
+
+from webapp.database import db
 
 web_bp = Blueprint("web", __name__)
 
@@ -21,3 +24,16 @@ def admin_config():
 @web_bp.route("/admin/detections")
 def admin_detections():
     return render_template("detections.html")
+
+
+@web_bp.route("/health")
+def health():
+    status = {"status": "ok"}
+    code = 200
+    try:
+        db.session.execute(text("SELECT 1"))
+    except Exception:
+        status["status"] = "error"
+        status["db"] = "unreachable"
+        code = 503
+    return status, code

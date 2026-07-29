@@ -1,0 +1,10 @@
+services:
+  plates:
+    image: "registry.mpce.mp.br/${CI_PROJECT_NAME}:${CI_COMMIT_SHORT_SHA}"
+    container_name: plates
+    restart: unless-stopped
+    ports:
+      - "9009:9009"
+    env_file: .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

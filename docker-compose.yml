@@ -1,0 +1,13 @@
+services:
+  plates:
+    network_mode: bridge
+    container_name: plates
+    restart: unless-stopped
+    build:
+      context: .
+      args:
+        BUILD_DATE: ${BUILD_DATE:-}
+    ports:
+      - "9009:9009"
+    env_file: .env
+

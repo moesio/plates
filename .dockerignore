@@ -1,0 +1,13 @@
+.venv
+__pycache__
+*.pyc
+.git
+.gitignore
+.idea
+instance
+*.db
+.env
+.pytest_cache
+.gitlab-ci.yml
+SPEC.md
+dataset

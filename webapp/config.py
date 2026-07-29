@@ -3,6 +3,7 @@ import threading
 import time
 
 from webapp import database
+from webapp.database import Config
 
 _CACHE = None
 _CACHE_TTL = int(os.getenv("CONFIG_CACHE_TTL", "10"))
@@ -22,7 +23,7 @@ def _load():
     raw = dict(_DEFAULTS)
     try:
         session = database.get_session()
-        rows = session.query(database.Config).all()
+        rows = session.query(Config).all()
         for row in rows:
             raw[row.key] = (row.value, row.description or "")
         session.close()
@@ -65,7 +66,7 @@ def reload():
 
 def seed(session):
     for key, (value, description) in _DEFAULTS.items():
-        existing = session.query(database.Config).filter_by(key=key).first()
+        existing = session.query(Config).filter_by(key=key).first()
         if existing is None:
-            session.add(database.Config(key=key, value=value, description=description))
+            session.add(Config(key=key, value=value, description=description))
     session.commit()

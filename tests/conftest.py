@@ -41,7 +41,7 @@ def mock_db_session(mocker):
     mock_session.__enter__ = MagicMock(return_value=mock_session)
     mock_session.__exit__ = MagicMock()
     mocker.patch("webapp.database.get_session", return_value=mock_session)
-    mocker.patch("webapp.database.SessionLocal", return_value=mock_session)
+    mocker.patch("webapp.database.db.session", mock_session)
     return mock_session
 
 

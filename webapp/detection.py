@@ -5,6 +5,7 @@ import cv2
 from webapp import config as cfg
 from webapp import database
 from webapp import dedup
+from webapp.database import Detection
 from webapp.plate import _is_valid_plate
 
 logger = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ def _process_alpr_results(results, frame, cam_id, cam_name, include_bbox=False):
 
         session = database.get_session()
         try:
-            det = database.Detection(
+            det = Detection(
                 plate_text=d["plate_text"],
                 confidence=d["confidence"],
                 camera_id=cam_id,

@@ -1,10 +1,9 @@
 import logging
 import os
 
-from flask import Response, jsonify
+from flask import Response
 
-from webapp import database
-from webapp.database import Detection
+from webapp.database import db, Detection
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +21,7 @@ class DetectionService:
         sort_col = getattr(Detection, sort_by)
         sort_col = sort_col.asc() if sort_order == "asc" else sort_col.desc()
 
-        session = database.get_session()
-        query = session.query(Detection)
+        query = db.session.query(Detection)
 
         if q:
             query = query.filter(Detection.plate_text.ilike(f"%{q}%"))
@@ -37,7 +35,6 @@ class DetectionService:
             .limit(per_page)
             .all()
         )
-        session.close()
 
         return {
             "detections": [
@@ -59,14 +56,12 @@ class DetectionService:
 
     @staticmethod
     def list_cameras():
-        session = database.get_session()
         rows = (
-            session.query(Detection.camera_id, Detection.camera_name)
+            db.session.query(Detection.camera_id, Detection.camera_name)
             .distinct()
             .order_by(Detection.camera_name, Detection.camera_id)
             .all()
         )
-        session.close()
         return [
             {"camera_id": r.camera_id, "camera_name": r.camera_name or r.camera_id}
             for r in rows
@@ -74,9 +69,7 @@ class DetectionService:
 
     @staticmethod
     def get_image(detection_id):
-        session = database.get_session()
-        det = session.query(Detection).filter_by(id=detection_id).first()
-        session.close()
+        det = db.session.query(Detection).filter_by(id=detection_id).first()
         if det is None or det.image is None:
             return None
         return Response(det.image, mimetype="image/jpeg")
