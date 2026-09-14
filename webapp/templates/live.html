@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Câmeras ao vivo - ALPR</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f172a; color: #e2e8f0; min-height: 100vh;
+  }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+  h1 {
+    font-size: 1.5rem; font-weight: 700; margin-bottom: 24px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  h1 small { font-size: 0.875rem; font-weight: 400; color: #94a3b8; }
+
+  nav {
+    display: flex; gap: 4px; margin-bottom: 24px;
+    background: #1e293b; border-radius: 10px; padding: 4px;
+  }
+  nav a {
+    padding: 8px 18px; border-radius: 8px; text-decoration: none;
+    color: #94a3b8; font-size: 0.9rem; font-weight: 500; transition: all 0.2s;
+  }
+  nav a:hover { background: #334155; color: #e2e8f0; }
+  nav a.active { background: #22c55e; color: #fff; }
+
+  .empty { text-align: center; padding: 56px 16px; color: #475569; font-size: 0.95rem; }
+  .empty a { color: #22c55e; text-decoration: none; }
+  .empty a:hover { text-decoration: underline; }
+
+  .camera-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px;
+  }
+  .camera-card {
+    background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+    overflow: hidden; transition: border-color 0.2s;
+  }
+  .camera-card:hover { border-color: #475569; }
+  .camera-card.focus { border-color: #22c55e; box-shadow: 0 0 0 2px rgba(34,197,94,0.25); }
+
+  .camera-card .video-box {
+    position: relative; background: #000; aspect-ratio: 16 / 9;
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+  }
+  .camera-card img {
+    width: 100%; height: 100%; object-fit: contain; display: block;
+  }
+  .camera-card .badge {
+    position: absolute; top: 10px; left: 10px; padding: 3px 10px;
+    border-radius: 10px; font-size: 0.72rem; font-weight: 700;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .badge .dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; }
+  .badge.live { background: rgba(6, 78, 59, 0.85); color: #6ee7b7; }
+  .badge.offline { background: rgba(69, 10, 10, 0.85); color: #fca5a5; }
+  .badge.offline .dot { background: #ef4444; }
+
+  .camera-card .no-signal {
+    color: #475569; font-size: 0.85rem; text-align: center; padding: 16px;
+  }
+  .camera-card img.hidden { display: none; }
+
+  .camera-card .info {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; padding: 12px 14px; border-top: 1px solid #1e293b;
+  }
+  .camera-card .name { font-weight: 600; font-size: 0.9rem; }
+  .camera-card .host { font-size: 0.75rem; color: #64748b; margin-top: 2px; }
+  .camera-card .btn-full {
+    background: #3b82f6; color: #fff; border: none; border-radius: 8px;
+    padding: 7px 14px; cursor: pointer; font-size: 0.8rem; font-weight: 600;
+    transition: background 0.2s; white-space: nowrap;
+  }
+  .camera-card .btn-full:hover { background: #2563eb; }
+
+  .spinner {
+    display: inline-block; width: 20px; height: 20px;
+    border: 3px solid #334155; border-top-color: #22c55e;
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading { text-align: center; padding: 32px; color: #94a3b8; }
+
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+    align-items: center; justify-content: center; z-index: 100; padding: 24px;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal {
+    background: #0f172a; border-radius: 14px; width: 100%;
+    max-width: 960px; border: 1px solid #334155; overflow: hidden;
+  }
+  .modal .m-title {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 14px 18px;
+  }
+  .modal .m-title .name { font-weight: 700; }
+  .modal .m-title .status { font-size: 0.8rem; color: #94a3b8; }
+  .modal .btn-close {
+    background: #334155; color: #fff; border: none; border-radius: 8px;
+    padding: 8px 16px; cursor: pointer; font-size: 0.85rem; font-weight: 600;
+    transition: background 0.2s;
+  }
+  .modal .btn-close:hover { background: #475569; }
+  .modal img { display: block; width: 100%; max-height: 75vh; object-fit: contain; background: #000; }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1><span>ALPR</span><small>Câmeras ao vivo</small></h1>
+
+  <nav>
+    <a href="/">Monitor</a>
+    <a href="/live" class="active">Câmeras ao vivo</a>
+    <a href="/admin/cameras">Câmeras</a>
+    <a href="/admin/detections">Detecções</a>
+    <a href="/admin/config">Config</a>
+  </nav>
+
+  <div id="camera-grid" class="camera-grid">
+    <div class="loading"><div class="spinner"></div> Carregando câmeras...</div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="m-title">
+      <div>
+        <div class="name" id="m-name"></div>
+        <div class="status" id="m-status"></div>
+      </div>
+      <button class="btn-close" onclick="closeModal()">Fechar</button>
+    </div>
+    <img id="m-video" alt="Câmera ao vivo">
+  </div>
+</div>
+
+<script>
+const _pollMs = 1000;
+const _timers = {};
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function frameUrl(camId) {
+  return '/cameras/' + camId + '/frame';
+}
+
+function streamUrl(camId) {
+  return '/cameras/' + camId + '/stream';
+}
+
+function buildCard(cam) {
+  const card = document.createElement('div');
+  card.className = 'camera-card';
+  card.id = 'camera-' + cam.id;
+  card.innerHTML =
+    '<div class="video-box">' +
+      '<span class="badge offline"><span class="dot"></span>Verificando...</span>' +
+      '<img class="hidden" alt="' + esc(cam.name || cam.host) + '">' +
+    '</div>' +
+    '<div class="info">' +
+      '<div><div class="name">' + esc(cam.name || cam.host) + '</div>' +
+      '<div class="host">' + esc(cam.host) + (cam.port ? ':' + esc(cam.port) : '') + '</div></div>' +
+      '<button class="btn-full" onclick="openFull(event, ' + cam.id + ')">Tela cheia</button>' +
+    '</div>';
+
+  const img = card.querySelector('img');
+  const badge = card.querySelector('.badge');
+
+  function setOffline() {
+    badge.className = 'badge offline';
+    badge.innerHTML = '<span class="dot"></span> Sem sinal';
+    img.classList.add('hidden');
+  }
+
+  function setOnline() {
+    badge.className = 'badge live';
+    badge.innerHTML = '<span class="dot"></span> Ao vivo';
+    img.classList.remove('hidden');
+  }
+
+  img.onerror = setOffline;
+  img.onload = setOnline;
+
+  function refresh() {
+    img.src = frameUrl(cam.id) + '?t=' + Date.now();
+  }
+
+  if (_timers[cam.id]) clearInterval(_timers[cam.id]);
+  _timers[cam.id] = setInterval(refresh, _pollMs);
+  refresh();
+
+  if (window.location.hash === '#camera-' + cam.id) {
+    card.classList.add('focus');
+    setTimeout(function() { card.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 300);
+  }
+
+  return card;
+}
+
+async function loadCameras() {
+  const grid = document.getElementById('camera-grid');
+  try {
+    const res = await fetch('/cameras');
+    const cameras = await res.json();
+    const enabled = cameras.filter(function(c) { return c.enabled; });
+
+    if (enabled.length === 0) {
+      grid.innerHTML =
+        '<div class="empty">Nenhuma câmera habilitada. ' +
+        '<a href="/admin/cameras">Cadastrar câmera RTSP</a></div>';
+      return;
+    }
+
+    const current = {};
+    grid.querySelectorAll('.camera-card').forEach(function(c) { current[c.id] = c; });
+
+    grid.innerHTML = '';
+    enabled.forEach(function(cam) {
+      const card = current['camera-' + cam.id] ? current['camera-' + cam.id] : buildCard(cam);
+      const badge = card.querySelector('.badge');
+      if (cam.online) {
+        if (badge) {
+          badge.className = 'badge live';
+          badge.innerHTML = '<span class="dot"></span> Ao vivo';
+        }
+      }
+      grid.appendChild(card);
+    });
+  } catch (err) {
+    grid.innerHTML = '<div class="empty">Erro ao carregar câmeras: ' + esc(err.message) + '</div>';
+  }
+}
+
+function openFull(event, camId) {
+  if (event) event.stopPropagation();
+  const card = document.getElementById('camera-' + camId);
+  const name = card ? card.querySelector('.name').textContent : 'Câmera ' + camId;
+  document.getElementById('m-name').textContent = name;
+  document.getElementById('m-status').textContent = 'Conectando...';
+  document.getElementById('m-video').src = '';
+  document.getElementById('modal').classList.add('active');
+  const video = document.getElementById('m-video');
+  video.onload = function() {
+    document.getElementById('m-status').textContent = 'Ao vivo';
+  };
+  video.onerror = function() {
+    document.getElementById('m-status').textContent = 'Sem sinal';
+  };
+  video.src = streamUrl(camId);
+}
+
+function closeModal() {
+  const video = document.getElementById('m-video');
+  video.src = '';
+  video.onload = null;
+  video.onerror = null;
+  document.getElementById('modal').classList.remove('active');
+}
+
+document.getElementById('modal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeModal();
+});
+
+loadCameras();
+setInterval(loadCameras, 5000);
+</script>
+</body>
+</html>

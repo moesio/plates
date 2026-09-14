@@ -3,10 +3,11 @@ from urllib.parse import unquote
 
 import cv2
 import numpy as np
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, Response, jsonify, request
 
 from webapp import config as cfg
-from webapp.database import db, Config
+from webapp import rtsp
+from webapp.database import db, Config, RtspCamera
 from webapp.detection import _process_alpr_results
 from webapp.services.camera_service import CameraService
 from webapp.services.detection_service import DetectionService
@@ -90,6 +91,32 @@ def delete_camera(camera_id):
     if not CameraService.delete(camera_id):
         return jsonify({"error": "camera not found"}), 404
     return jsonify({"message": "camera deleted"}), 200
+
+
+@api_bp.route("/cameras/<int:camera_id>/frame")
+def camera_frame(camera_id):
+    cam = db.session.query(RtspCamera).filter_by(id=camera_id).first()
+    if cam is None:
+        return jsonify({"error": "camera not found"}), 404
+    jpeg = rtsp.get_latest_frame(f"rtsp:{camera_id}")
+    if jpeg is None:
+        return jsonify({"error": "no frame available"}), 404
+    resp = Response(jpeg, mimetype="image/jpeg")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@api_bp.route("/cameras/<int:camera_id>/stream")
+def camera_stream(camera_id):
+    cam = db.session.query(RtspCamera).filter_by(id=camera_id).first()
+    if cam is None:
+        return jsonify({"error": "camera not found"}), 404
+    resp = Response(
+        rtsp.stream_frames(f"rtsp:{camera_id}"),
+        mimetype="multipart/x-mixed-replace; boundary=frame",
+    )
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @api_bp.route("/detections", methods=["GET"])

@@ -11,6 +11,11 @@ def index():
     return render_template("index.html")
 
 
+@web_bp.route("/live")
+def live():
+    return render_template("live.html")
+
+
 @web_bp.route("/admin/cameras")
 def admin_cameras():
     return render_template("admin_cameras.html")

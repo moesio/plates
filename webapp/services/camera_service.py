@@ -1,7 +1,7 @@
 import logging
 
 from webapp.database import db, RtspCamera
-from webapp.rtsp import _start_rtsp_threads, _stop_all_rtsp_threads
+from webapp.rtsp import _start_rtsp_threads, _stop_all_rtsp_threads, get_latest_frame
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +11,12 @@ class CameraService:
     @staticmethod
     def list_all():
         cameras = db.session.query(RtspCamera).order_by(RtspCamera.id).all()
-        return [cam.to_dict() for cam in cameras]
+        result = []
+        for cam in cameras:
+            data = cam.to_dict()
+            data["online"] = get_latest_frame(f"rtsp:{cam.id}") is not None
+            result.append(data)
+        return result
 
     @staticmethod
     def create(data):

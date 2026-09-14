@@ -50,6 +50,10 @@
   .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 600; }
   .badge.on { background: #166534; color: #86efac; }
   .badge.off { background: #7f1d1d; color: #fca5a5; }
+  .badge.toggle {
+    cursor: pointer; border: none; font: inherit; transition: filter 0.15s;
+  }
+  .badge.toggle:hover { filter: brightness(1.3); }
 
   .modal-overlay {
     display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
@@ -99,6 +103,7 @@
 
   <nav>
     <a href="/">Monitor</a>
+    <a href="/live">Câmeras ao vivo</a>
     <a href="/admin/cameras" class="active">Câmeras</a>
     <a href="/admin/detections">Detecções</a>
     <a href="/admin/config">Config</a>
@@ -177,7 +182,7 @@ async function loadCameras() {
         <td>${esc(c.username)}</td>
         <td>${esc(c.path)}</td>
         <td>${esc(c.name)}</td>
-        <td><span class="badge ${c.enabled ? 'on' : 'off'}">${c.enabled ? 'Sim' : 'Não'}</span></td>
+        <td><button class="badge toggle ${c.enabled ? 'on' : 'off'}" onclick="toggleCamera(${c.id})" title="Clique para ${c.enabled ? 'desabilitar' : 'habilitar'}">${c.enabled ? 'Sim' : 'Não'}</button></td>
         <td class="actions">
           <button class="edit" onclick="openEditModal(${c.id})">Editar</button>
           <button class="delete" onclick="deleteCamera(${c.id})">Excluir</button>
@@ -278,6 +283,29 @@ async function deleteCamera(id) {
     loadCameras();
   } catch (err) {
     showToast('Erro ao excluir', 'error');
+  }
+}
+
+async function toggleCamera(id) {
+  try {
+    const res = await fetch('/cameras');
+    const cameras = await res.json();
+    const cam = cameras.find(c => c.id === id);
+    if (!cam) { showToast('Câmera não encontrada', 'error'); return; }
+    const up = await fetch(`/cameras/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ enabled: !cam.enabled }),
+    });
+    if (!up.ok) {
+      const err = await up.json();
+      showToast(err.error || 'Erro ao alterar', 'error');
+      return;
+    }
+    showToast(cam.enabled ? 'Câmera desabilitada' : 'Câmera habilitada', 'success');
+    loadCameras();
+  } catch (err) {
+    showToast('Erro ao alterar', 'error');
   }
 }
 

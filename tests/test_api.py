@@ -175,6 +175,50 @@ class TestConfigAPI:
         assert resp.status_code == 404
 
 
+class TestCameraLiveEndpoints:
+    def test_frame_camera_missing_404(self, client, mock_db_session):
+        mock_db_session.query.return_value.filter_by.return_value.first.return_value = None
+
+        resp = client.get("/cameras/999/frame")
+        assert resp.status_code == 404
+
+    def test_frame_no_signal_404(self, client, mock_db_session):
+        from webapp.rtsp import _RTSP_LATEST
+
+        _RTSP_LATEST.pop("rtsp:1", None)
+        resp = client.get("/cameras/1/frame")
+        assert resp.status_code == 404
+
+    def test_frame_returns_latest_jpeg(self, client, mock_db_session):
+        from webapp.rtsp import _clear_latest_frame, _set_latest_frame
+
+        _set_latest_frame("rtsp:1", b"\xff\xd8jpegdata")
+        try:
+            resp = client.get("/cameras/1/frame")
+            assert resp.status_code == 200
+            assert resp.mimetype == "image/jpeg"
+            assert resp.data.startswith(b"\xff\xd8")
+        finally:
+            _clear_latest_frame("rtsp:1")
+
+    def test_stream_camera_missing_404(self, client, mock_db_session):
+        mock_db_session.query.return_value.filter_by.return_value.first.return_value = None
+
+        resp = client.get("/cameras/999/stream")
+        assert resp.status_code == 404
+
+    def test_stream_returns_mjpeg(self, client, mock_db_session):
+        from webapp.rtsp import _clear_latest_frame, _set_latest_frame
+
+        _set_latest_frame("rtsp:1", b"jpegdata")
+        try:
+            resp = client.get("/cameras/1/stream")
+            assert resp.status_code == 200
+            assert "multipart/x-mixed-replace" in resp.content_type
+        finally:
+            _clear_latest_frame("rtsp:1")
+
+
 class TestSeedOnFirstRequest:
     def test_seed_runs_once(self, client, mocker):
         mock_seed = mocker.patch("webapp.app.cfg.seed")
