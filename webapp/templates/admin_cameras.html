@@ -123,11 +123,12 @@
         <th>Path</th>
         <th>Nome</th>
         <th>Ativo</th>
+        <th>Detecção</th>
         <th>Ações</th>
       </tr>
     </thead>
     <tbody id="camera-tbody">
-      <tr><td colspan="8" class="loading"><div class="spinner"></div> Carregando...</td></tr>
+      <tr><td colspan="9" class="loading"><div class="spinner"></div> Carregando...</td></tr>
     </tbody>
   </table>
 
@@ -151,6 +152,18 @@
         <input type="checkbox" id="input-enabled" checked>
         <label style="margin:0">Habilitada</label>
       </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="input-detect-enabled" checked>
+        <label style="margin:0">Detecção de placas</label>
+      </div>
+      <label>Grade de detecção (placas pequenas)</label>
+      <select id="input-detect-grid">
+        <option value="1x1">1x1 - Frame completo</option>
+        <option value="2x2">2x2</option>
+        <option value="3x3">3x3</option>
+        <option value="4x3">4x3</option>
+        <option value="6x3">6x3 - Placas pequenas</option>
+      </select>
       <div class="modal-actions">
         <button class="btn secondary" onclick="closeModal()">Cancelar</button>
         <button class="btn" id="modal-save-btn" onclick="saveCamera()">Salvar</button>
@@ -166,12 +179,12 @@ let editingId = null;
 
 async function loadCameras() {
   const tbody = document.getElementById('camera-tbody');
-  tbody.innerHTML = '<tr><td colspan="8" class="loading"><div class="spinner"></div> Carregando...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="9" class="loading"><div class="spinner"></div> Carregando...</td></tr>';
   try {
     const res = await fetch('/cameras');
     const cameras = await res.json();
     if (cameras.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" class="empty">Nenhuma câmera cadastrada.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="empty">Nenhuma câmera cadastrada.</td></tr>';
       return;
     }
     tbody.innerHTML = cameras.map(c => `
@@ -183,6 +196,7 @@ async function loadCameras() {
         <td>${esc(c.path)}</td>
         <td>${esc(c.name)}</td>
         <td><button class="badge toggle ${c.enabled ? 'on' : 'off'}" onclick="toggleCamera(${c.id})" title="Clique para ${c.enabled ? 'desabilitar' : 'habilitar'}">${c.enabled ? 'Sim' : 'Não'}</button></td>
+        <td><button class="badge toggle ${c.detect_enabled ? 'on' : 'off'}" onclick="toggleDetection(${c.id})" title="Clique para ${c.detect_enabled ? 'desabilitar' : 'habilitar'} a detecção">${c.detect_enabled ? 'Sim' : 'Não'}</button></td>
         <td class="actions">
           <button class="edit" onclick="openEditModal(${c.id})">Editar</button>
           <button class="delete" onclick="deleteCamera(${c.id})">Excluir</button>
@@ -190,7 +204,7 @@ async function loadCameras() {
       </tr>
     `).join('');
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="8" class="empty" style="color:#f87171">Erro ao carregar: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="empty" style="color:#f87171">Erro ao carregar: ${err.message}</td></tr>`;
   }
 }
 
@@ -205,6 +219,8 @@ function openAddModal() {
   document.getElementById('input-path').value = '/';
   document.getElementById('input-name').value = '';
   document.getElementById('input-enabled').checked = true;
+  document.getElementById('input-detect-enabled').checked = true;
+  document.getElementById('input-detect-grid').value = '1x1';
   document.getElementById('modal-overlay').classList.add('active');
 }
 
@@ -224,6 +240,8 @@ async function openEditModal(id) {
     document.getElementById('input-path').value = cam.path;
     document.getElementById('input-name').value = cam.name;
     document.getElementById('input-enabled').checked = cam.enabled;
+    document.getElementById('input-detect-enabled').checked = cam.detect_enabled;
+    document.getElementById('input-detect-grid').value = cam.detect_grid || '1x1';
     document.getElementById('modal-overlay').classList.add('active');
   } catch (err) {
     showToast('Erro ao carregar câmera', 'error');
@@ -245,6 +263,8 @@ async function saveCamera() {
     path: document.getElementById('input-path').value || '/',
     name: document.getElementById('input-name').value,
     enabled: document.getElementById('input-enabled').checked,
+    detect_enabled: document.getElementById('input-detect-enabled').checked,
+    detect_grid: document.getElementById('input-detect-grid').value,
   };
   try {
     let res;
@@ -303,6 +323,29 @@ async function toggleCamera(id) {
       return;
     }
     showToast(cam.enabled ? 'Câmera desabilitada' : 'Câmera habilitada', 'success');
+    loadCameras();
+  } catch (err) {
+    showToast('Erro ao alterar', 'error');
+  }
+}
+
+async function toggleDetection(id) {
+  try {
+    const res = await fetch('/cameras');
+    const cameras = await res.json();
+    const cam = cameras.find(c => c.id === id);
+    if (!cam) { showToast('Câmera não encontrada', 'error'); return; }
+    const up = await fetch(`/cameras/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ detect_enabled: !cam.detect_enabled }),
+    });
+    if (!up.ok) {
+      const err = await up.json();
+      showToast(err.error || 'Erro ao alterar', 'error');
+      return;
+    }
+    showToast(cam.detect_enabled ? 'Detecção desabilitada' : 'Detecção habilitada', 'success');
     loadCameras();
   } catch (err) {
     showToast('Erro ao alterar', 'error');

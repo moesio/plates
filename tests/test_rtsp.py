@@ -28,7 +28,7 @@ class TestBuildRtspUrl:
         from webapp.rtsp import _build_rtsp_url
 
         url = _build_rtsp_url({"host": "192.168.1.100", "port": 8080})
-        assert url == "rtsp://192.168.1.100:8080/"
+        assert url == "rtsp://192.168.1.100:8080/?tcp"
 
     def test_with_auth(self):
         from webapp.rtsp import _build_rtsp_url
@@ -39,7 +39,7 @@ class TestBuildRtspUrl:
             "username": "admin",
             "password": "secret",
         })
-        assert url == "rtsp://admin:secret@10.0.0.50:554/"
+        assert url == "rtsp://admin:secret@10.0.0.50:554/?tcp"
 
     def test_with_path(self):
         from webapp.rtsp import _build_rtsp_url
@@ -49,7 +49,17 @@ class TestBuildRtspUrl:
             "port": 554,
             "path": "/Streaming/Channels/101",
         })
-        assert url == "rtsp://192.168.1.100:554/Streaming/Channels/101"
+        assert url == "rtsp://192.168.1.100:554/Streaming/Channels/101?tcp"
+
+    def test_with_path_query_uses_ampersand(self):
+        from webapp.rtsp import _build_rtsp_url
+
+        url = _build_rtsp_url({
+            "host": "192.168.1.100",
+            "port": 554,
+            "path": "/cam/realmonitor?channel=1&subtype=0",
+        })
+        assert url == "rtsp://192.168.1.100:554/cam/realmonitor?channel=1&subtype=0&tcp"
 
     def test_without_username_skips_auth(self):
         from webapp.rtsp import _build_rtsp_url
@@ -59,13 +69,13 @@ class TestBuildRtspUrl:
             "port": 8080,
             "password": "secret",
         })
-        assert url == "rtsp://192.168.1.100:8080/"
+        assert url == "rtsp://192.168.1.100:8080/?tcp"
 
     def test_default_port(self):
         from webapp.rtsp import _build_rtsp_url
 
         url = _build_rtsp_url({"host": "10.0.0.1"})
-        assert url == "rtsp://10.0.0.1:554/"
+        assert url == "rtsp://10.0.0.1:554/?tcp"
 
 
 class TestStartRtspThreads:
@@ -119,6 +129,21 @@ class TestStartRtspThreads:
         assert cam_dict["path"] == "/live"
         assert cam_dict["name"] == "Garagem"
 
+    def test_starts_only_capture_when_detection_disabled(self, mocker):
+        import webapp.config as cfg
+        from webapp import rtsp
+        from webapp.database import RtspCamera
+
+        mock_thread = mocker.patch.object(rtsp.threading, "Thread")
+        cfg._CACHE["confidence_threshold"] = ("0.0", "")
+
+        cam = RtspCamera(id=3, host="10.0.0.3", port=554, detect_enabled=False)
+        rtsp._start_rtsp_threads([cam])
+
+        assert mock_thread.call_count == 1
+        name = mock_thread.call_args.kwargs["name"]
+        assert name == "rtsp:3:capture"
+
     def test_skips_disabled_cameras(self, mocker):
         import webapp.config as cfg
         from webapp import rtsp
@@ -171,6 +196,66 @@ class TestStartRtspThreads:
         rtsp._RTSP_THREADS.clear()
         cfg._CACHE["confidence_threshold"] = ("0.0", "")
         rtsp._start_rtsp_threads([])
+
+
+class TestParseGrid:
+    def test_valid_grids(self):
+        from webapp.rtsp import _parse_grid
+
+        assert _parse_grid("2x2") == (2, 2)
+        assert _parse_grid("6x3") == (6, 3)
+        assert _parse_grid("1x1") == (1, 1)
+        assert _parse_grid("  3 X 4  ") == (3, 4)
+
+    def test_invalid_grids(self):
+        from webapp.rtsp import _parse_grid
+
+        assert _parse_grid(None) is None
+        assert _parse_grid("") is None
+        assert _parse_grid("x") is None
+        assert _parse_grid("0x0") is None
+        assert _parse_grid("2") is None
+        assert _parse_grid("abx2") is None
+
+    def test_predict_frame_whole_when_1x1(self):
+        import numpy as np
+
+        import webapp.rtsp as rtsp
+
+        frame = np.zeros((200, 300, 3), dtype=np.uint8)
+        alpr = MagicMock()
+        alpr.predict.return_value = ["res"]
+        out = rtsp._predict_frame(alpr, frame, {"detect_grid": "1x1"})
+        assert out == ["res"]
+        alpr.predict.assert_called_once()
+
+    def test_predict_frame_tiling_maps_bbox(self):
+        import numpy as np
+
+        import webapp.rtsp as rtsp
+        from fast_alpr.alpr import ALPRResult
+        from fast_alpr.base import OcrResult
+        from open_image_models.detection.core.base import BoundingBox, DetectionResult
+
+        frame = np.zeros((100, 400, 3), dtype=np.uint8)
+        bbox = BoundingBox(x1=10, y1=5, x2=90, y2=45)
+        det = DetectionResult(label="license_plate", confidence=0.9, bounding_box=bbox)
+        alpr_result = ALPRResult(detection=det, ocr=OcrResult(text="ABC1234", confidence=0.9))
+
+        old_up = rtsp._DETECT_TILE_UPSCALE
+        rtsp._DETECT_TILE_UPSCALE = 1.0
+        try:
+            alpr = MagicMock()
+            alpr.predict.return_value = [alpr_result]
+            out = rtsp._predict_frame(alpr, frame, {"detect_grid": "2x1"})
+        finally:
+            rtsp._DETECT_TILE_UPSCALE = old_up
+
+        assert alpr.predict.call_count == 2
+        assert len(out) == 2
+        x1_offsets = sorted(res.detection.bounding_box.x1 for res in out)
+        assert x1_offsets[0] == 10
+        assert x1_offsets[1] == pytest.approx(210)
 
 
 class TestLatestFrame:
@@ -305,17 +390,27 @@ class TestRtspCaptureLoop:
         td.start()
 
     def test_saves_detection(self, mocker):
+        import webapp.rtsp as rtsp
+        import webapp.config as cfg
+
         self._setup_mocks(mocker, [("ABC1234", 0.95)])
         mock_session = MagicMock()
         mocker.patch("webapp.database.get_session", return_value=mock_session)
 
-        import webapp.config as cfg
         cfg._CACHE["confidence_threshold"] = ("0.0", "")
 
-        self._start_loops("rtsp:cam1", {"host": "10.0.0.1", "port": 554, "name": "Test Cam"})
-        time.sleep(0.3)
+        old_cap = rtsp._CAPTURE_FRAME_SLEEP
+        old_det = rtsp._DETECT_INTERVAL
+        rtsp._CAPTURE_FRAME_SLEEP = 1.0
+        rtsp._DETECT_INTERVAL = 0.05
+        try:
+            self._start_loops("rtsp:cam1", {"host": "10.0.0.1", "port": 554, "name": "Test Cam"})
+            time.sleep(0.3)
+            mock_session.add.assert_called_once()
+        finally:
+            rtsp._CAPTURE_FRAME_SLEEP = old_cap
+            rtsp._DETECT_INTERVAL = old_det
 
-        mock_session.add.assert_called_once()
         det = mock_session.add.call_args[0][0]
         assert det.plate_text == "ABC1234"
         assert det.camera_id == "rtsp:cam1"

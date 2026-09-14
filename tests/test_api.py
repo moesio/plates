@@ -10,7 +10,7 @@ class TestRtspCameraModel:
 
         cam = RtspCamera(
             id=1, host="10.0.0.1", port=554, username="admin", password="secret",
-            path="/live", name="Portaria", enabled=True,
+            path="/live", name="Portaria", enabled=True, detect_enabled=True,
         )
         d = cam.to_dict()
         assert d["id"] == 1
@@ -21,6 +21,7 @@ class TestRtspCameraModel:
         assert d["path"] == "/live"
         assert d["name"] == "Portaria"
         assert d["enabled"] is True
+        assert d["detect_enabled"] is True
 
     def test_to_dict_defaults(self):
         from webapp.database import RtspCamera
@@ -34,6 +35,7 @@ class TestRtspCameraModel:
         assert d["path"] == "/"
         assert d["name"] == ""
         assert d["enabled"] is True
+        assert d["detect_enabled"] is True
 
     def test_to_dict_enabled_none_defaults_true(self):
         from webapp.database import RtspCamera
@@ -41,6 +43,13 @@ class TestRtspCameraModel:
         cam = RtspCamera(id=3, host="10.0.0.3", enabled=None)
         d = cam.to_dict()
         assert d["enabled"] is True
+
+    def test_to_dict_detect_enabled_none_defaults_true(self):
+        from webapp.database import RtspCamera
+
+        cam = RtspCamera(id=4, host="10.0.0.4", detect_enabled=None)
+        d = cam.to_dict()
+        assert d["detect_enabled"] is True
 
 
 class TestConfigAPI:
@@ -112,7 +121,20 @@ class TestConfigAPI:
         added = mock_db_session.add.call_args[0][0]
         assert isinstance(added, RtspCamera)
         assert added.host == "10.0.0.1"
+        assert added.detect_enabled is True
         mock_start.assert_called_once()
+
+    def test_create_camera_with_detect_disabled(self, client, mock_db_session, mocker):
+        from webapp.database import RtspCamera
+
+        mocker.patch("webapp.services.camera_service._start_rtsp_threads")
+
+        resp = client.post("/cameras", json={"host": "10.0.0.1", "detect_enabled": False})
+        assert resp.status_code == 201
+
+        added = mock_db_session.add.call_args[0][0]
+        assert isinstance(added, RtspCamera)
+        assert added.detect_enabled is False
 
     def test_create_camera_missing_host(self, client):
         resp = client.post("/cameras", json={"port": 554})
@@ -123,7 +145,8 @@ class TestConfigAPI:
 
         cams = [
             RtspCamera(id=1, host="10.0.0.1", port=554, name="Cam 1"),
-            RtspCamera(id=2, host="10.0.0.2", port=554, name="Cam 2"),
+            RtspCamera(id=2, host="10.0.0.2", port=554, name="Cam 2",
+                       detect_enabled=False),
         ]
         mock_db_session.query.return_value.order_by.return_value.all.return_value = cams
 
@@ -132,7 +155,9 @@ class TestConfigAPI:
         data = resp.get_json()
         assert len(data) == 2
         assert data[0]["host"] == "10.0.0.1"
+        assert data[0]["detect_enabled"] is True
         assert data[1]["host"] == "10.0.0.2"
+        assert data[1]["detect_enabled"] is False
 
     def test_update_camera(self, client, mock_db_session, mocker):
         from webapp.database import RtspCamera
@@ -144,6 +169,18 @@ class TestConfigAPI:
         resp = client.put("/cameras/1", json={"name": "New Name"})
         assert resp.status_code == 200
         assert cam.name == "New Name"
+        mock_start.assert_called_once()
+
+    def test_update_camera_toggles_detect_enabled(self, client, mock_db_session, mocker):
+        from webapp.database import RtspCamera
+
+        mock_start = mocker.patch("webapp.services.camera_service._start_rtsp_threads")
+        cam = RtspCamera(id=1, host="10.0.0.1", port=554, detect_enabled=True)
+        mock_db_session.query.return_value.filter_by.return_value.first.return_value = cam
+
+        resp = client.put("/cameras/1", json={"detect_enabled": False})
+        assert resp.status_code == 200
+        assert cam.detect_enabled is False
         mock_start.assert_called_once()
 
     def test_update_camera_not_found(self, client, mock_db_session):

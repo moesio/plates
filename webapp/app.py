@@ -13,10 +13,15 @@ from webapp.routes.api import api_bp
 
 
 def create_app():
-    app = Flask(__name__)
-    app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
-        "DATABASE_URL", "postgresql://moesio:moesio@localhost:5432/plates"
+    logging.basicConfig(
+        level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper()),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    app = Flask(__name__)
+    uri = os.getenv("DATABASE_URL", "postgresql://moesio:moesio@localhost:5432/plates")
+    if "connect_timeout" not in uri:
+        uri += ("&" if "?" in uri else "?") + "connect_timeout=5"
+    app.config["SQLALCHEMY_DATABASE_URI"] = uri
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.logger.setLevel(getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper()))
 
@@ -38,10 +43,8 @@ def create_app():
                     _start_rtsp_threads(cameras)
                 else:
                     _stop_all_rtsp_threads()
-            except Exception:
-                pass
+            except Exception as e:
+                app.logger.error("Config/RTSP seed failed on first request: %s", e, exc_info=True)
             app._config_seeded = True
-
-    _seed_config()
 
     return app

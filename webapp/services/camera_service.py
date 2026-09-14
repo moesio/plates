@@ -28,6 +28,8 @@ class CameraService:
             path=data.get("path", "/"),
             name=data.get("name", ""),
             enabled=data.get("enabled", True),
+            detect_enabled=data.get("detect_enabled", True),
+            detect_grid=data.get("detect_grid", "1x1"),
         )
         db.session.add(cam)
         db.session.commit()
@@ -47,6 +49,8 @@ class CameraService:
         cam.path = data.get("path", cam.path)
         cam.name = data.get("name", cam.name)
         cam.enabled = data.get("enabled", cam.enabled)
+        cam.detect_enabled = data.get("detect_enabled", cam.detect_enabled)
+        cam.detect_grid = data.get("detect_grid", cam.detect_grid)
         db.session.commit()
         db.session.refresh(cam)
         CameraService._restart_rtsp()

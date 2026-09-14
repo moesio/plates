@@ -143,15 +143,8 @@
 </div>
 
 <script>
-const _pollMs = 1000;
-const _timers = {};
-
 function esc(s) {
   return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
-function frameUrl(camId) {
-  return '/cameras/' + camId + '/frame';
 }
 
 function streamUrl(camId) {
@@ -177,12 +170,14 @@ function buildCard(cam) {
   const badge = card.querySelector('.badge');
 
   function setOffline() {
+    img.dataset.state = 'offline';
     badge.className = 'badge offline';
     badge.innerHTML = '<span class="dot"></span> Sem sinal';
     img.classList.add('hidden');
   }
 
   function setOnline() {
+    img.dataset.state = 'online';
     badge.className = 'badge live';
     badge.innerHTML = '<span class="dot"></span> Ao vivo';
     img.classList.remove('hidden');
@@ -190,14 +185,8 @@ function buildCard(cam) {
 
   img.onerror = setOffline;
   img.onload = setOnline;
-
-  function refresh() {
-    img.src = frameUrl(cam.id) + '?t=' + Date.now();
-  }
-
-  if (_timers[cam.id]) clearInterval(_timers[cam.id]);
-  _timers[cam.id] = setInterval(refresh, _pollMs);
-  refresh();
+  img.src = streamUrl(cam.id);
+  card.setBadge = function(online) { (online ? setOnline : setOffline)(); };
 
   if (window.location.hash === '#camera-' + cam.id) {
     card.classList.add('focus');
@@ -222,19 +211,38 @@ async function loadCameras() {
     }
 
     const current = {};
+    const seen = {};
     grid.querySelectorAll('.camera-card').forEach(function(c) { current[c.id] = c; });
 
-    grid.innerHTML = '';
     enabled.forEach(function(cam) {
-      const card = current['camera-' + cam.id] ? current['camera-' + cam.id] : buildCard(cam);
-      const badge = card.querySelector('.badge');
-      if (cam.online) {
-        if (badge) {
-          badge.className = 'badge live';
-          badge.innerHTML = '<span class="dot"></span> Ao vivo';
+      const cardId = 'camera-' + cam.id;
+      seen[cardId] = true;
+      const existing = current[cardId];
+      if (!existing) {
+        const card = buildCard(cam);
+        if (!cam.online) card.setBadge(false);
+        grid.appendChild(card);
+      } else {
+        const img = existing.querySelector('img');
+        const state = img ? img.dataset.state : null;
+        if (cam.online) {
+          if (state !== 'online') {
+            existing.setBadge(true);
+            if (state === 'offline') {
+              img.src = streamUrl(cam.id) + '?t=' + Date.now();
+            }
+          }
+        } else {
+          existing.setBadge(false);
+          if (state === 'online') {
+            img.src = streamUrl(cam.id) + '?t=' + Date.now();
+          }
         }
       }
-      grid.appendChild(card);
+    });
+
+    Object.keys(current).forEach(function(id) {
+      if (!seen[id]) grid.removeChild(current[id]);
     });
   } catch (err) {
     grid.innerHTML = '<div class="empty">Erro ao carregar câmeras: ' + esc(err.message) + '</div>';

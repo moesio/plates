@@ -1,3 +1,4 @@
+import dataclasses
 import logging
 import os
 import threading
@@ -21,8 +22,10 @@ _RECONNECT_BACKOFF = float(os.getenv("RTSP_RECONNECT_BACKOFF", "1.5"))
 _RECONNECT_DELAY_MAX = float(os.getenv("RTSP_RECONNECT_DELAY_MAX", "30.0"))
 _DETECT_INTERVAL = float(os.getenv("RTSP_DETECT_INTERVAL", os.getenv("RTSP_FRAME_SLEEP", "1.0")))
 _CAPTURE_FRAME_SLEEP = float(os.getenv("RTSP_CAPTURE_FRAME_SLEEP", "0.05"))
-_POLL_INTERVAL = float(os.getenv("RTSP_POLL_INTERVAL", "0.25"))
+_POLL_INTERVAL = float(os.getenv("RTSP_POLL_INTERVAL", "0.10"))
 _STREAM_TIMEOUT = float(os.getenv("RTSP_STREAM_TIMEOUT", "10.0"))
+_RTSP_TRANSPORT = os.getenv("RTSP_TRANSPORT", "tcp").lower()
+_DETECT_TILE_UPSCALE = float(os.getenv("RTSP_DETECT_TILE_UPSCALE", "2.0"))
 _frame_counters = {}
 
 _RTSP_CAMERAS = {}
@@ -48,7 +51,70 @@ def _build_rtsp_url(cam):
     password = cam.get("password", "")
     path = cam.get("path", "/")
     auth = f"{username}:{password}@" if username and password else ""
-    return f"rtsp://{auth}{host}:{port}{path}"
+    url = f"rtsp://{auth}{host}:{port}{path}"
+    transport = (cam.get("transport") or _RTSP_TRANSPORT).lower()
+    if transport:
+        sep = "&" if "?" in path else "?"
+        url += f"{sep}{transport}"
+    return url
+
+
+def _parse_grid(grid):
+    """Parse a 'WxH' tile grid config; returns (cols, rows) or None."""
+    if not grid:
+        return None
+    parts = str(grid).strip().lower().split("x")
+    if len(parts) != 2:
+        return None
+    try:
+        cols, rows = int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
+    if cols < 1 or rows < 1:
+        return None
+    return cols, rows
+
+
+def _predict_frame(alpr, frame, cam_config):
+    """Run plate detection, optionally tiling the frame for small/ distant plates.
+
+    Returns the list of ALPR results with bounding boxes mapped back to
+    full-frame coordinates.
+    """
+    grid = _parse_grid(cam_config.get("detect_grid"))
+    h, w = frame.shape[:2]
+    if grid is None or grid == (1, 1) or h < grid[1] or w < grid[0]:
+        return alpr.predict(frame)
+    cols, rows = grid
+    tw, th = w // cols, h // rows
+    results = []
+    for r in range(rows):
+        for c in range(cols):
+            tile = frame[r * th:(r + 1) * th, c * tw:(c + 1) * tw]
+            if _DETECT_TILE_UPSCALE != 1.0:
+                tile = cv2.resize(
+                    tile, None,
+                    fx=_DETECT_TILE_UPSCALE, fy=_DETECT_TILE_UPSCALE,
+                    interpolation=cv2.INTER_CUBIC,
+                )
+            try:
+                tile_results = alpr.predict(tile)
+            except Exception:
+                continue
+            for res in tile_results:
+                bb = getattr(getattr(res, "detection", None), "bounding_box", None)
+                if bb is None:
+                    continue
+                new_bb = dataclasses.replace(
+                    bb,
+                    x1=bb.x1 / _DETECT_TILE_UPSCALE + c * tw,
+                    y1=bb.y1 / _DETECT_TILE_UPSCALE + r * th,
+                    x2=bb.x2 / _DETECT_TILE_UPSCALE + c * tw,
+                    y2=bb.y2 / _DETECT_TILE_UPSCALE + r * th,
+                )
+                new_det = dataclasses.replace(res.detection, bounding_box=new_bb)
+                results.append(dataclasses.replace(res, detection=new_det))
+    return results
 
 
 def _set_latest_frame(cam_id, jpeg):
@@ -86,7 +152,7 @@ def wait_for_frame(cam_id, timeout=1.0):
 
 
 def stream_frames(cam_id, timeout=None):
-    """Yield MJPEG parts for the latest frame of cam_id until it goes stale."""
+    """Yield MJPEG parts for new frames of cam_id until none arrive for `timeout`."""
     if timeout is None:
         timeout = _STREAM_TIMEOUT
     boundary = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
@@ -94,15 +160,13 @@ def stream_frames(cam_id, timeout=None):
     idle_since = time.time()
     while True:
         jpeg = get_latest_frame(cam_id)
-        if jpeg is None:
-            if time.time() - idle_since > timeout:
-                break
-            time.sleep(_POLL_INTERVAL)
-            continue
-        idle_since = time.time()
-        if jpeg != sent:
+        if jpeg is not None and jpeg != sent:
+            idle_since = time.time()
             yield boundary + jpeg + b"\r\n"
             sent = jpeg
+            continue
+        if time.time() - idle_since > timeout:
+            break
         time.sleep(_POLL_INTERVAL)
 
 
@@ -201,7 +265,7 @@ def _rtsp_detection_loop(cam_id, cam_config):
             np_arr = np.frombuffer(jpeg, np.uint8)
             frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
-            results = alpr.predict(frame)
+            results = _predict_frame(alpr, frame, cam_config)
             logger.info("RTSP %s: alpr.predict returned %d result(s)", cam_id, len(results))
 
             if logger.getEffectiveLevel() == logging.DEBUG:
@@ -250,6 +314,7 @@ def _start_rtsp_threads(cameras):
                 "password": cam.password or "",
                 "path": cam.path or "/",
                 "name": cam.name or "",
+                "detect_grid": getattr(cam, "detect_grid", None) or "1x1",
             }
             capture = threading.Thread(
                 target=_rtsp_capture_loop,
@@ -257,14 +322,17 @@ def _start_rtsp_threads(cameras):
                 name=f"{cam_id}:capture",
                 daemon=True,
             )
-            detect = threading.Thread(
-                target=_rtsp_detection_loop,
-                args=(cam_id, cam_dict),
-                name=f"{cam_id}:detect",
-                daemon=True,
-            )
+            detect = None
+            if getattr(cam, "detect_enabled", True) is not False:
+                detect = threading.Thread(
+                    target=_rtsp_detection_loop,
+                    args=(cam_id, cam_dict),
+                    name=f"{cam_id}:detect",
+                    daemon=True,
+                )
             capture.start()
-            detect.start()
+            if detect is not None:
+                detect.start()
             _RTSP_THREADS[cam_id] = (capture, detect)
             logger.info("Started RTSP threads for rtsp:%s (host=%s)", cam.id, cam.host)
     except Exception as e:

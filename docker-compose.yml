@@ -1,13 +1,12 @@
 services:
   plates:
-    network_mode: bridge
+    # Host network so the app can reach PostgreSQL on the host's 127.0.0.1
+    # (pg_hba.conf only allows localhost connections).
+    network_mode: host
     container_name: plates
     restart: unless-stopped
     build:
       context: .
       args:
         BUILD_DATE: ${BUILD_DATE:-}
-    ports:
-      - "9009:9009"
     env_file: .env
-

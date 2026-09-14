@@ -289,10 +289,12 @@ function startProcessing(camName) {
   const video = document.getElementById('video');
   const status = document.getElementById('cam-status');
 
-  const INTERVAL_MS = 500;
+  const INTERVAL_MS = 800;
+  let processing = false;
 
   async function captureAndDetect() {
-    if (!mediaStream) return;
+    if (!mediaStream || processing) return;
+    processing = true;
 
     _captureCanvas.width = video.videoWidth;
     _captureCanvas.height = video.videoHeight;
@@ -321,6 +323,8 @@ function startProcessing(camName) {
         if (detections.length > 0) fetchRecent();
       } catch (err) {
         status.textContent = 'Erro de conexão';
+      } finally {
+        processing = false;
       }
     }, 'image/jpeg', 0.7);
   }

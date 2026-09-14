@@ -41,6 +41,8 @@ class RtspCamera(db.Model):
     path = db.Column(db.String(255), default="/")
     name = db.Column(db.String(100))
     enabled = db.Column(db.Boolean, default=True)
+    detect_enabled = db.Column(db.Boolean, default=True)
+    detect_grid = db.Column(db.String(10), default="1x1")
     created_at = db.Column(db.DateTime(timezone=True), server_default=func.now())
     updated_at = db.Column(db.DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -54,6 +56,8 @@ class RtspCamera(db.Model):
             "path": self.path or "/",
             "name": self.name or "",
             "enabled": self.enabled if self.enabled is not None else True,
+            "detect_enabled": self.detect_enabled if self.detect_enabled is not None else True,
+            "detect_grid": self.detect_grid or "1x1",
         }
 
 
